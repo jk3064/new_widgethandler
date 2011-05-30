@@ -3,9 +3,9 @@
 --
 --  file:    utils.lua
 --  brief:   utility routines
---  author:  Dave Rodgers
+--  author:  Dave Rodgers, jK
 --
---  Copyright (C) 2007.
+--  Copyright (C) 2007-2011.
 --  Licensed under the terms of the GNU GPL, v2 or later.
 --
 --------------------------------------------------------------------------------
@@ -19,7 +19,8 @@ UtilsGuard = true
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
---// needed below
+UTILS_DIRNAME = LUAUI_DIRNAME .. 'Utilities/'
+
 local EG = getfenv()
 
 --------------------------------------------------------------------------------
@@ -37,30 +38,31 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
--- Modules
+-- Utilities
 
-local loaded_modules = {}
+local loaded_utils = {}
 
 function require(filename, _level)
 	--// check if it is in the cache
-	local moduleEnv = loaded_modules[filename]
+	local utilEnv = loaded_utils[filename]
 
 	--// not in cache -> load it
-	if not moduleEnv then
-		local filepath = LUAUI_DIRNAME .. 'Modules/' .. filename
-		moduleEnv = {}
-		setmetatable(moduleEnv, {__index = EG})
-		local status, err = pcall(VFS.Include, filepath, moduleEnv, VFSMODE or VFS.DEF_MODE)
+	if not utilEnv then
+		local filepath = UTILS_DIRNAME .. filename
+		utilEnv = {}
+		setmetatable(utilEnv, {__index = EG})
+		local status, err = pcall(VFS.Include, filepath, utilEnv, VFSMODE or VFS.DEF_MODE)
 		if status then
-			loaded_modules[filename] = moduleEnv
+			loaded_utils[filename] = utilEnv
 		else
-			error(("Failed to load module \"%s\": %s."):format(filename, err), 2)
+			error(("Failed to load util \"%s\": %s."):format(filename, err), 2)
 		end
 	end
 
 	--// copy to caller's enviroment
+	--FIXME use recursive copy?
 	local _G = getfenv(_level or 2)
-	for i,v in pairs(moduleEnv) do
+	for i,v in pairs(utilEnv) do
 		_G[i] = v
 	end
 end

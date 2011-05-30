@@ -22,7 +22,7 @@ WIDGET_DIRS     = {
 
 
 --// cache the results of time intensive funcs
-include("Modules/cache.lua", handler.EG)
+include("Utilities/cache.lua", handler.EG)
 
 
 --// how to handle local widgets
