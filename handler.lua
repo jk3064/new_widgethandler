@@ -5,7 +5,7 @@
 --  brief:   the widget manager, a call-in router
 --  author:  jK (based heavily on code by Dave Rodgers)
 --
---  Copyright (C) 2007,2008,2009,2010,2011.
+--  Copyright (C) 2007-2011.
 --  Licensed under the terms of the GNU GPL, v2 or later.
 --
 --------------------------------------------------------------------------------
@@ -172,7 +172,7 @@ end
 
 local CreateList
 do
-	--// use array indices for most used entries (faster)
+	--// use array indices for most used entries (faster & less mem usage)
 	local DATA  = 1
 	local NEXT  = 2
 	local PREV  = 3
@@ -319,7 +319,7 @@ handler = {
 	name = "widgetHandler";
 
 	verbose = true;
-	autoUserWidgets = true; --FIXME rename
+	autoUserWidgets = true; --// if false it auto disables widgets from rawFS
 
 	widgets      = CreateList("widgets"); --// all loaded widgets
 	configData   = {};
@@ -1300,7 +1300,7 @@ function handler:Disable(name)
 	local w = self:FindByName(name)
 	if (w) then
 		spEcho(("Removed widget:  %-21s  %s"):format(name, self:GetFancyString(name,ki.basename)))
-		self:Remove(w)     --// deactivate
+		self:Remove(w) --// deactivate
 		self.orderList[name] = 0 --// disable
 		self:SaveOrderList()
 		return true
@@ -1799,12 +1799,17 @@ end
 
 function hHookFuncs.RecvLuaMsg(msg, playerID)
 	local retval = false
+	--FIXME: another actionHandler type?
+	--if (actionHandler.RecvLuaMsg(msg, playerID)) then
+	--	retval = true
+	--end
+
 	for _,f in hCallInLists.RecvLuaMsg:iter() do
 		if (f(msg, playerID)) then
 			retval = true
 		end
 	end
-	return retval  --FIXME: another actionHandler type?
+	return retval
 end
 
 
