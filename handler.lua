@@ -761,10 +761,8 @@ function handler:LoadWidgetInfo(filepath, _VFSMODE)
 end
 
 
-function handler:LoadWidgetRev2Info(filepath, _VFSMODE)
-	local basename = Basename(filepath)
-
-	local wi = {
+local function GetDefaultKnownInfo(filepath, basename)
+	return {
 		filepath = filepath,
 		basename = basename,
 		name     = basename,
@@ -778,12 +776,18 @@ function handler:LoadWidgetRev2Info(filepath, _VFSMODE)
 		handler  = false,
 		before   = {},
 		after    = {},
-		_rev     = 2,
+		_rev     = 0,
 	}
+end
 
-	_VFSMODE = _VFSMODE or VFSMODE
+
+function handler:LoadWidgetRev2Info(filepath, _VFSMODE)
 	local basename = Basename(filepath)
 
+	local wi = GetDefaultKnownInfo(filepath, basename)
+	wi._rev = 2
+
+	_VFSMODE = _VFSMODE or VFSMODE
 	local loadEnv = {INFO = true; math = math}
 
 	local success, rvalue = pcall(VFS.Include, filepath, loadEnv, _VFSMODE)
@@ -805,22 +809,8 @@ end
 function handler:LoadWidgetRev1Info(widget, filepath)
 	local basename = Basename(filepath)
 
-	local wi = {
-		filepath = filepath,
-		basename = basename,
-		name     = basename,
-		version  = "0.1",
-		layer    = 0,
-		desc     = "",
-		author   = "",
-		license  = "",
-		enabled  = false,
-		api      = false,
-		handler  = false,
-		before   = {},
-		after    = {},
-		_rev     = 1,
-	}
+	local wi = GetDefaultKnownInfo(filepath, basename)
+	wi._rev = 1
 
 	if (widget.GetInfo) then
 		local info = SafeCallWidget(widget, "GetInfo")
