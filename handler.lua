@@ -344,12 +344,16 @@ handler = {
 }
 
 --// backward compability, so you can still call handler:UnitCreated() etc.
-setmetatable(handler, {__index = function(self, key)
-	local firstChar = key:sub(1,1)
-	if (firstChar == firstChar:upper()) then
-		return function(_, ...)
-			if (self.callInHookFuncs[key]) then
-				return self.callInHookFuncs[key](...)
+setmetatable(handler, {
+	__index = function(self, key)
+		local firstChar = key:sub(1,1)
+		if (firstChar == firstChar:upper()) then
+			return function(_, ...)
+				if (self.callInHookFuncs[key]) then
+					return self.callInHookFuncs[key](...)
+				else
+					error(LUA_NAME .. ": No CallIn-Handler for \"" .. key .. "\"")
+				end
 			end
 		end
 	end
