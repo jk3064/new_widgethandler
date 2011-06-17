@@ -89,7 +89,7 @@ end
 --------------------------------------------------------------------------------
 -- Table functions
 
-local function CopyTable(t1, t2)
+local function tcopy(t1, t2)
 	--FIXME recursive?
 	for i,v in pairs(t2) do
 		t1[i] = v
@@ -751,6 +751,13 @@ function handler:LoadWidgetInfo(filepath, _VFSMODE)
 		wi.checksum = VFS.GetFileChecksum(wi.filepath, _VFSMODE or VFSMODE)
 	end
 
+	--// check if it's loaded from a zip (game or map)
+	wi.fromZip = true
+	if (_VFSMODE == VFS.ZIP_FIRST) then
+		wi.fromZip = VFS.FileExists(wi.filepath,VFS.ZIP_ONLY)
+	else
+		wi.fromZip = not VFS.FileExists(wi.filepath,VFS.RAW_ONLY)
+	end
 	err = self:ValidateKnownInfo(wi, _VFSMODE)
 	if (err) then
 		spEcho(err)
@@ -801,7 +808,7 @@ function handler:LoadWidgetRev2Info(filepath, _VFSMODE)
 			return "Wrong return value: " .. basename
 		end
 
-	CopyTable(wi, rvalue)
+	tcopy(wi, rvalue)
 	return false, wi
 end
 
@@ -813,12 +820,14 @@ function handler:LoadWidgetRev1Info(widget, filepath)
 	wi._rev = 1
 
 	if (widget.GetInfo) then
-		local info = SafeCallWidget(widget, "GetInfo")
+		local rvalue = SafeCallWidget(widget, "GetInfo")
 		if type(rvalue) ~= "table" then
 			return "Failed to call GetInfo() in: " .. basename
 		else
-			CopyTable(wi, info)
+			tcopy(wi, rvalue)
 		end
+	else
+		return "Missing GetInfo() in: " .. basename
 	end
 
 	return false, wi
@@ -835,7 +844,7 @@ function handler:NewWidgetRev2()
 	widgetEnv.widget = widget  --// makes `function Initizalize` & `function widget.Initialize` point to the same data
 
 	--// copy the engine enviroment to the widget
-		CopyTable(widgetEnv, EG)
+		tcopy(widgetEnv, EG)
 	--// the shared table
 		widgetEnv.SG = self.SG
 	--// insert handler
@@ -907,7 +916,7 @@ function handler:NewWidgetRev1()
 	widgetEnv.widget = widget
 
 	--// copy the engine enviroment to the widget
-	CopyTable(widgetEnv, EG)
+	tcopy(widgetEnv, EG)
 	
 	--// the shared table
 	--widgetEnv.SG = self.SG
@@ -978,15 +987,7 @@ function handler:ValidateKnownInfo(ki, _VFSMODE)
 	end
 
 	--// create/update a knownInfo table
-	CopyTable(knownInfo, ki) --// update table
-
-	--// check if it is loaded from a zip (game or map)
-	knownInfo.fromZip = true
-	if (_VFSMODE == VFS.ZIP_FIRST) then
-		knownInfo.fromZip = VFS.FileExists(ki.filepath,VFS.ZIP_ONLY)
-	else
-		knownInfo.fromZip = not VFS.FileExists(ki.filepath,VFS.RAW_ONLY)
-	end
+	tcopy(knownInfo, ki) --// update table
 
 	--// update so widgets can see if something got changed
 	self.knownChanged = self.knownChanged + 1
