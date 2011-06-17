@@ -69,15 +69,15 @@ function widget:Initialize()
     end
   end
 
-  handler:AddKnownCallIn("TweakMousePress", true, false)
-  handler:AddKnownCallIn("TweakMouseWheel", true, false)
-  handler:AddKnownCallIn("TweakIsAbove", true, false)
-  handler:AddKnownCallIn("TweakGetTooltip", true, false)
-  handler:AddKnownCallIn("TweakKeyPress", true, false)
-  handler:AddKnownCallIn("TweakKeyRelease", true, false)
-  handler:AddKnownCallIn("TweakMouseMove", true, false)
-  handler:AddKnownCallIn("TweakMouseRelease", true, false)
-  handler:AddKnownCallIn("TweakDrawScreen", true, false)
+  handler:AddNewCallIn("TweakMousePress", true, false)
+  handler:AddNewCallIn("TweakMouseWheel", true, false)
+  handler:AddNewCallIn("TweakIsAbove", true, false)
+  handler:AddNewCallIn("TweakGetTooltip", true, false)
+  handler:AddNewCallIn("TweakKeyPress", true, false)
+  handler:AddNewCallIn("TweakKeyRelease", true, false)
+  handler:AddNewCallIn("TweakMouseMove", true, false)
+  handler:AddNewCallIn("TweakMouseRelease", true, false)
+  handler:AddNewCallIn("TweakDrawScreen", true, false)
 
   Spring.SendCommands(
     "unbindkeyset  Ctrl+f11",

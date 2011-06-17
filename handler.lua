@@ -380,8 +380,6 @@ end
 
 --// Load all known engine callins
 local engineCallIns = Script.GetCallInList() --// important!
---engineCallIns.ConfigureLayout = {unsynced = true, controller = true}
---engineCallIns.Shutdown = {unsynced = true, controller = false}
 
 
 --// Create list of all known callins (any others used in widgets won't work!)
@@ -394,23 +392,26 @@ for ciName,ciParams in pairs(engineCallIns) do
 	end
 end
 
---// Register custom (non-engine) callins
-knownCallIns.Initialize = {}       --// ()
-knownCallIns.WidgetAdded = {}      --// (wname)
-knownCallIns.WidgetRemoved = {}    --// (wname, reason) -- reason can either be "crash" | "user" | "auto"
-knownCallIns.SelectionChanged = {} --// (selection = {unitID1, unitID1}) -> [newSelection]
-knownCallIns.CommandsChanged = {}  --// ()
-knownCallIns.TextCommand = {}      --// ("command") -- renamed ConfigureLayout
 
-function handler:AddKnownCallIn(ciName, unsynced, controller)
+--// Registers custom (non-engine) callins
+function handler:AddNewCallIn(ciName, unsynced, controller)
 	if (knownCallIns[ciName]) then
 		return
 	end
-	knownCallIns[ciName] = {unsynced = unsynced, controller = controller}
+	knownCallIns[ciName] = {unsynced = unsynced, controller = controller, custom = true}
 	for _,w in self.widgets:iter() do
 		handler:UpdateWidgetCallIn(ciName, w)
 	end
 end
+
+
+--// Standard Custom CallIns
+handler:AddNewCallIn("Initialize", true, false)       --// ()
+handler:AddNewCallIn("WidgetAdded", true, false)      --// (wname)
+handler:AddNewCallIn("WidgetRemoved", true, false)    --// (wname, reason) -- reason can either be "crash" | "user" | "auto" | "dependency"
+handler:AddNewCallIn("SelectionChanged", true, true)  --// (selection = {unitID1, unitID1}) -> [newSelection]
+handler:AddNewCallIn("CommandsChanged", true, false)  --// ()
+handler:AddNewCallIn("TextCommand", true, false)      --// ("command") -- renamed ConfigureLayout
 
 
 --------------------------------------------------------------------------------
