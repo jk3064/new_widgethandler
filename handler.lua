@@ -10,8 +10,7 @@
 --
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
---FIXME add require/depend to reload other widgets when one crashes
---FIXME name widgets & gadgets Extensions internally
+--FIXME name widgets & gadgets AddOns internally
 --FIXME rev2 & handler:Remove()
 --FIXME add AllowWidgetLoading event
 
@@ -768,6 +767,10 @@ function handler:LoadWidgetInfo(filepath, _VFSMODE)
 	else
 		wi.fromZip = not VFS.FileExists(wi.filepath,VFS.RAW_ONLY)
 	end
+
+	--// causality
+	tappend(wi.after, wi.depend)
+
 	--// validate
 	err = self:ValidateKnownInfo(wi, _VFSMODE)
 	if (err) then
@@ -794,6 +797,7 @@ local function GetDefaultKnownInfo(filepath, basename)
 		handler  = false,
 		before   = {},
 		after    = {},
+		depend   = {},
 		_rev     = 0,
 	}
 end
@@ -1044,6 +1048,15 @@ function handler:Load(filepath, _VFSMODE)
 		return
 	end
 
+	--// check dependencies
+	for i=1,#ki.depend do
+		local dep = ki.depend[i]
+		if not (self.knownWidgets[dep] or {}).active then
+			spEcho((LUA_NAME .. ": Missing/Unloaded dependency \"%s\" for \"%s\"."):format(dep, name))
+			return
+		end
+	end
+
 	--// Load Widget
 	local widget
 	if ((ki._rev or 0) >= 2) then
@@ -1143,6 +1156,19 @@ function handler:Remove(widget, _reason)
 	handler.widgets:Remove(widget)
 	RemoveWidgetCallIns(widget)
 	handler:UpdateCallIns()
+
+	--// check dependencies
+	local rem = {}
+	for _,w in handler.widgets:iter() do
+		if tfind(w._info.depend, name) then
+			rem[#rem+1] = w
+		end
+	end
+	for i=1,#rem do
+		local ki2 = rem[i]._info
+		spEcho(("Removed widget:  %-21s  %s (dependent of \"%s\")"):format(ki2.name, handler:GetFancyString(ki2.name,ki2.basename),name))
+		handler:Remove(rem[i], "dependency")
+	end
 
 	--// inform other widgets
 	handler:WidgetRemoved(name, _reason or "user")
