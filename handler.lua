@@ -750,8 +750,13 @@ function handler:LoadWidgetInfo(filepath, _VFSMODE)
 		end
 	end
 
-	if (not wi) then return nil end
+	--// fail
+	if (not wi) then
+		--spEcho(err)
+		return nil
+	end
 
+	--// create checksum for rev1 addons
 	if (wi._rev <= 1) then
 		wi.checksum = VFS.GetFileChecksum(wi.filepath, _VFSMODE or VFSMODE)
 	end
@@ -763,6 +768,7 @@ function handler:LoadWidgetInfo(filepath, _VFSMODE)
 	else
 		wi.fromZip = not VFS.FileExists(wi.filepath,VFS.RAW_ONLY)
 	end
+	--// validate
 	err = self:ValidateKnownInfo(wi, _VFSMODE)
 	if (err) then
 		spEcho(err)
@@ -947,12 +953,8 @@ function handler:NewWidgetRev1()
 	h.UpdateCallIn = function(_, name) handler:UpdateWidgetCallIn(name, widget) end
 	h.RemoveCallIn = function(_, name) handler:RemoveWidgetCallIn(name, widget) end
 
-	h.AddAction    = function(_, cmd, func, data, types)
-		return actionHandler.AddWidgetAction(widget, cmd, func, data, types)
-	end
-	h.RemoveAction = function(_, cmd, types)
-		return actionHandler.RemoveWidgetAction(widget, cmd, types)
-	end
+	h.AddAction    = function(_, cmd, func, data, types) return actionHandler.AddWidgetAction(widget, cmd, func, data, types) end
+	h.RemoveAction = function(_, cmd, types)             return actionHandler.RemoveWidgetAction(widget, cmd, types) end
 
 	h.AddLayoutCommand = function(_, cmd)
 		if (handler.inCommandsChanged) then
@@ -1122,12 +1124,12 @@ function handler:Remove(widget, _reason)
 
 	--// Try clean exit
 	local name = widget._info.name
-	local ki = self.knownWidgets[name]
+	local ki = handler.knownWidgets[name]
 	if (not ki.active) then
 		return
 	end
 	ki.active = false
-	self:SaveWidgetConfigData(widget)
+	handler:SaveWidgetConfigData(widget)
 	if (widget.Shutdown) then
 		local ok, err = pcall(widget.Shutdown, widget)
 		if not ok then
@@ -1136,11 +1138,11 @@ function handler:Remove(widget, _reason)
 	end
 
 	--// Remove any links in the handler
-	self:RemoveWidgetGlobals(widget)
+	handler:RemoveWidgetGlobals(widget)
 	actionHandler.RemoveWidgetActions(widget)
-	self.widgets:Remove(widget)
+	handler.widgets:Remove(widget)
 	RemoveWidgetCallIns(widget)
-	self:UpdateCallIns()
+	handler:UpdateCallIns()
 
 	--// inform other widgets
 	handler:WidgetRemoved(name, _reason or "user")
@@ -1491,6 +1493,13 @@ function handler:UpdateCallIns()
 		self:UpdateCallIn(ciName)
 	end
 end
+
+
+
+
+
+
+
 
 
 --------------------------------------------------------------------------------
