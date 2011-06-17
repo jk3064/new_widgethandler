@@ -59,9 +59,23 @@ function require(filename, _level)
 		end
 	end
 
+
+	--// get caller's enviroment
+	_level = _level or 2
+	local success, _G
+	for i=_level,_level+10 do
+		success, _G = pcall(getfenv, i+1) --// +1 cause of pcall!
+		if success then
+			break
+		end
+	end
+	if not success then
+		error(_G)
+		return
+	end
+
 	--// copy to caller's enviroment
 	--FIXME use recursive copy?
-	local _G = getfenv(_level or 2)
 	for i,v in pairs(utilEnv) do
 		_G[i] = v
 	end
@@ -74,11 +88,11 @@ end
 
 function include(filename, envTable, VFSMODE)
 	if filename == "colors.h.lua" then
-		return require("colors.lua", 3)
+		return require("colors.lua") --// tail call so we don't need to bother with stacklevels
 	end
 	if filename == "keysym.h.lua" then
-		Spring.Echo("Headers files aren't supported anymore use \"require\" instead!", 2)
-		return require("keysym.lua", 3)
+		Spring.Echo("Headers files aren't supported anymore use \"require\" instead!")
+		return require("keysym.lua") --// tail call so we don't need to bother with stacklevels
 	end
 	if filename:find(".h.", 1, true) then
 		--// give error on old LuaUI syntax (<=0.82)
