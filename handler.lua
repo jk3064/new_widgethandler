@@ -1060,7 +1060,7 @@ function handler:LoadOrderList()
 		local success, rvalue = pcall(VFS.Include, ORDER_FILENAME, {math = {huge = math.huge}})
 		if (not success) then
 			spEcho(LUA_NAME .. ': Failed to load: ' .. ORDER_FILENAME .. '  (' .. rvalue .. ')')
-		else
+		elseif (type(rvalue) == "table") then
 			self.orderList = rvalue
 		end
 	end
