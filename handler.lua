@@ -185,7 +185,7 @@ handler = {
 	addons       = CreateList("addons", SortFuncExtension); --// all loaded addons
 	configData   = {};
 	orderList    = {};
-	knownWidgets = {};
+	knownWidgets = {}; --// cached Load...Info() results of all known/available Addons (even unloaded ones)
 	knownChanged = 0;
 
 	commands          = {}; --FIXME where used?
@@ -266,16 +266,18 @@ function handler:AddNewCallIn(ciName, unsynced, controller)
 		return
 	end
 	knownCallIns[ciName] = {unsynced = unsynced, controller = controller, custom = true}
-	for _,w in self.addons:iter() do
-		handler:UpdateWidgetCallIn(ciName, w)
+	for _,addon in handler.addons:iter() do
+		handler:UpdateWidgetCallIn(ciName, addon)
 	end
 end
 
 
 --// Standard Custom CallIns
 handler:AddNewCallIn("Initialize", true, false)       --// ()
-handler:AddNewCallIn("WidgetAdded", true, false)      --// (wname)
-handler:AddNewCallIn("WidgetRemoved", true, false)    --// (wname, reason) -- reason can either be "crash" | "user" | "auto" | "dependency"
+handler:AddNewCallIn("AddonAdded", true, false)       --// (addon_name)
+handler:AddNewCallIn("WidgetAdded", true, false)      --// ''
+handler:AddNewCallIn("AddonRemoved", true, false)     --// (addon_name, reason) -- reason can either be "crash" | "user" | "auto" | "dependency"
+handler:AddNewCallIn("WidgetRemoved", true, false)    --// ''
 handler:AddNewCallIn("SelectionChanged", true, true)  --// (selection = {unitID1, unitID1}) -> [newSelection]
 handler:AddNewCallIn("CommandsChanged", true, false)  --// ()
 handler:AddNewCallIn("TextCommand", true, false)      --// ("command") -- renamed ConfigureLayout
@@ -285,12 +287,12 @@ handler:AddNewCallIn("TextCommand", true, false)      --// ("command") -- rename
 --------------------------------------------------------------------------------
 -- Custom iterator for all known callins
 
-local function knownCallins_iter(w, key)
+local function knownCallins_iter(addon, key)
 	local ciFunc
 	repeat
 		key = next(knownCallIns, key)
 		if (key) then
-			ciFunc = w[key]
+			ciFunc = addon[key]
 			if (type(ciFunc) == "function") then
 				return key, ciFunc
 			end
@@ -298,8 +300,8 @@ local function knownCallins_iter(w, key)
 	until (not key)
 end
 
-local function knownCallins(w)
-	return knownCallins_iter, w, nil
+local function knownCallins(addon)
+	return knownCallins_iter, addon, nil
 end
 
 
@@ -310,65 +312,65 @@ end
 function handler:Initialize()
 	--// Create the "LuaUI/Config" directory
 	Spring.CreateDir(LUAUI_DIRNAME .. 'Config')
-	self:UpdateAddonList()
-	self.initialized = true
+	handler:UpdateAddonList()
+	handler.initialized = true
 end
 
 
 function handler:UpdateAddonList()
-	self:LoadOrderList()
-	self:LoadConfigData()
-	self:LoadKnownData()
+	handler:LoadOrderList()
+	handler:LoadConfigData()
+	handler:LoadKnownData()
 
 	--// GetInfo() of new/changed files
-	self:SearchForNew()
+	handler:SearchForNew()
 
 	--// Create list all to load files
 	spEcho(("%s: Loading %ss   <>=vfs  **=raw  ()=unknown"):format(LUA_NAME, handler.addonName))
-	self:DetectEnabledAddons()
+	handler:DetectEnabledAddons()
 
 	local loadList = {}
-	for name,order in pairs(self.orderList) do
+	for name,order in pairs(handler.orderList) do
 		if (order > 0) then
-			local ki = self.knownWidgets[name]
+			local ki = handler.knownWidgets[name]
 			if ki then
 				loadList[#loadList+1] = name
 			else
-				if (self.verbose) then spEcho(("Couldn't find a %s named \"%s\""):format(handler.addonName, name)) end
-				self.knownWidgets[name] = nil
-				self.orderList[name] = nil
+				if (handler.verbose) then spEcho(("Couldn't find a %s named \"%s\""):format(handler.addonName, name)) end
+				handler.knownWidgets[name] = nil
+				handler.orderList[name] = nil
 			end
 		end
 	end
 
 	--// Sort them
 	local SortFunc = function(n1, n2)
-		local wi1 = handler.knownWidgets[n1]
-		local wi2 = handler.knownWidgets[n2]
+		local ki1 = handler.knownWidgets[n1]
+		local ki2 = handler.knownWidgets[n2]
 		--assert(wi1 and wi2)
-		return SortFuncExtension(wi1 or emptyTable, wi2 or emptyTable)
+		return SortFuncExtension(ki1 or emptyTable, ki2 or emptyTable)
 	end
 	table.sort(loadList, SortFunc)
 
-	if (not self.verbose) then
+	if (not handler.verbose) then
 		--// if not in verbose mode, print the to be load addons (in a nice table) BEFORE loading them!
 		local st = {}
 		for _,name in ipairs(loadList) do
-			st[#st+1] = self:GetFancyString(name)
+			st[#st+1] = handler:GetFancyString(name)
 		end
 		tprinttable(st, 4)
 	end
 
 	--// Load them
 	for _,name in ipairs(loadList) do
-		local ki = self.knownWidgets[name]
-		self:Load(ki.filepath)
+		local ki = handler.knownWidgets[name]
+		handler:Load(ki.filepath)
 	end
 
 	--// Save the active addons, and their ordering
-	self:SaveOrderList()
-	self:SaveConfigData()
-	self:SaveKnownData()
+	handler:SaveOrderList()
+	handler:SaveConfigData()
+	handler:SaveKnownData()
 end
 
 handler[("Update%sList"):format(handler.AddonName)] = handler.UpdateAddonList
@@ -392,7 +394,7 @@ end
 
 
 function handler:FindNameByPath(path)
-	for _,ki in pairs(self.knownWidgets) do
+	for _,ki in pairs(handler.knownWidgets) do
 		if (ki.filepath == path) then
 			return ki.name
 		end
@@ -407,9 +409,9 @@ function handler:SearchForNew(quiet)
 	local addonFiles = GetAllAddonFiles()
 	for _,fpath in ipairs(addonFiles) do
 		local name = handler:FindNameByPath(fpath)
-		local ki = name and self.knownWidgets[name]
+		local ki = name and handler.knownWidgets[name]
 
-		if ki and ((not self.initialized) or ((ki._rev >= 2) and (not ki.active))) then --// don't override the knownWidgets[name] of _loaded_ addons!
+		if ki and ((not handler.initialized) or ((ki._rev >= 2) and (not ki.active))) then --// don't override the knownWidgets[name] of _loaded_ addons!
 			if ki and ki.checksum then --// rev2 addons don't save a checksum!
 				local checksum = VFS.GetFileChecksum(fpath, VFSMODE)
 				if (checksum and (ki.checksum ~= checksum)) then
@@ -421,37 +423,37 @@ function handler:SearchForNew(quiet)
 		end
 
 		if (not ki) then
-			if (self.verbose) then spEcho(("%s: Found new %s \"%s\""):format(LUA_NAME, handler.addonName, fpath)) end
-			if name then self.knownWidgets[name] = nil end
+			if (handler.verbose) then spEcho(("%s: Found new %s \"%s\""):format(LUA_NAME, handler.addonName, fpath)) end
+			if name then handler.knownWidgets[name] = nil end
 
-			self:LoadWidgetInfo(fpath)
+			handler:LoadWidgetInfo(fpath)
 		end
 	end
 
-	self:DetectEnabledAddons()
+	handler:DetectEnabledAddons()
 	if (quiet) then spEcho = Spring.Echo end
 end
 
 
 function handler:DetectEnabledAddons()
-	for i,ki in pairs(self.knownWidgets) do
+	for i,ki in pairs(handler.knownWidgets) do
 		if (not ki.active) then
 			--// default enabled?
 			local defEnabled = ki.enabled
 
 			--// enabled or not?
-			local order = self.orderList[ki.name]
+			local order = handler.orderList[ki.name]
 			if ((order or 0) > 0)
-				or ((order == nil) and defEnabled and (self.autoUserWidgets or ki.fromZip))
+				or ((order == nil) and defEnabled and (handler.autoUserWidgets or ki.fromZip))
 			then
 				--// this will be an active addon
-				self.orderList[ki.name] = order or 1235 --// back of the pack for unknown order
+				handler.orderList[ki.name] = order or 1235 --// back of the pack for unknown order
 
 				--//we don't auto start addons when just updating the available list
-				ki.active = (not self.initialized)
+				ki.active = (not handler.initialized)
 			else
 				--// deactive the addon
-				self.orderList[ki.name] = 0
+				handler.orderList[ki.name] = 0
 				ki.active = false
 			end
 		end
@@ -560,6 +562,351 @@ end
 handler[("SafeCall%s"):format(handler.AddonName)] = SafeCallAddon
 handler.SafeCallAddon  = SafeCallAddon
 
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Addon Info
+
+do
+	local function GetDefaultKnownInfo(filepath, basename)
+		return {
+			filepath = filepath,
+			basename = basename,
+			name     = basename,
+			version  = "0.1",
+			layer    = 0,
+			desc     = "",
+			author   = "",
+			license  = "",
+			enabled  = false,
+			api      = false,
+			handler  = false,
+			before   = {},
+			after    = {},
+			depend   = {},
+			_rev     = 0,
+		}
+	end
+
+
+	local function LoadAddonRev2Info(filepath, _VFSMODE)
+		local basename = Basename(filepath)
+
+		local ki = GetDefaultKnownInfo(filepath, basename)
+		ki._rev = 2
+
+		_VFSMODE = _VFSMODE or VFSMODE
+		local loadEnv = {addon = {InGetInfo = true}, math = math}
+
+		local success, rvalue = pcall(VFS.Include, filepath, loadEnv, _VFSMODE)
+			if not success then
+				return "Failed to load: " .. basename .. "  (" .. rvalue .. ")"
+			end
+			if rvalue == false then
+				return true --// addon asked for a silent death
+			end
+			if type(rvalue) ~= "table" then
+				return "Wrong return value: " .. basename
+			end
+
+		tcopy(ki, rvalue)
+		return false, ki
+	end
+
+
+	local function LoadAddonRev1Info(addon, filepath)
+		local basename = Basename(filepath)
+
+		local ki = GetDefaultKnownInfo(filepath, basename)
+		ki._rev = 1
+
+		if (addon.GetInfo) then
+			local rvalue = SafeCallAddon(addon, "GetInfo")
+			if type(rvalue) ~= "table" then
+				return "Failed to call GetInfo() in: " .. basename
+			else
+				tcopy(ki, rvalue)
+			end
+		else
+			return "Missing GetInfo() in: " .. basename
+		end
+
+		return false, ki
+	end
+
+
+	local function ValidateKnownInfo(ki, _VFSMODE)
+		if not ki then
+			return "No KnownInfo given"
+		end
+
+		--// load/create data
+		local knownInfo = handler.knownWidgets[ki.name]
+		if (not knowInfo) then
+			knownInfo = {}
+			handler.knownWidgets[ki.name] = knownInfo
+		end
+
+		--// check for duplicated name
+		if (knownInfo.filepath)and(knownInfo.filepath ~= ki.filepath) then
+			return "Failed to load: " .. ki.basename .. " (duplicate name)"
+		end
+
+		--// create/update knownInfo table
+		tcopy(knownInfo, ki) --// update table
+	end
+
+
+	function handler:LoadWidgetInfo(filepath, _VFSMODE)
+		--// update so addons can see if something got changed
+		handler.knownChanged = handler.knownChanged + 1
+
+		--// clear old knownInfo
+		local name = handler:FindNameByPath(filepath)
+		if (name) then
+			handler.knownWidgets[name] = nil --FIXME addon._info and handler.knownWidgets[name] point should point to the same table?
+		end
+
+		local err, ki = LoadAddonRev2Info(filepath, _VFSMODE)
+		if (err == true) then
+			return nil --// addon asked for a silent death
+		end
+		if (not ki) then
+			--// try to load it as rev1 addon
+			local addon = handler:ParseAddonRev1(filepath, _VFSMODE)
+			if (addon) then
+				err, ki = LoadAddonRev1Info(addon, filepath)
+			end
+		end
+
+		--// fail
+		if (not ki) then
+			--spEcho(err)
+			return nil
+		end
+
+		--// create checksum for rev1 addons
+		if (ki._rev <= 1) then
+			ki.checksum = VFS.GetFileChecksum(ki.filepath, _VFSMODE or VFSMODE)
+		end
+
+		--// check if it's loaded from a zip (game or map)
+		ki.fromZip = true
+		if (_VFSMODE == VFS.ZIP_FIRST) then
+			ki.fromZip = VFS.FileExists(ki.filepath,VFS.ZIP_ONLY)
+		else
+			ki.fromZip = not VFS.FileExists(ki.filepath,VFS.RAW_ONLY)
+		end
+
+		--// causality
+		tappend(ki.after, ki.depend)
+
+		--// validate
+		err = ValidateKnownInfo(ki, _VFSMODE)
+		if (err) then
+			spEcho(err)
+			return nil
+		end
+
+		return ki
+	end
+end
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Addon Parsing
+
+local function ValidateAddon(addon)
+	if (addon.GetTooltip and not addon.IsAbove) then
+		return ("%s has GetTooltip() but not IsAbove()"):format(handler.AddonName)
+	end
+	return nil
+end
+
+
+function handler:NewAddonRev2()
+	local addonEnv = {}
+	local addon = addonEnv
+	addonEnv.widget = addon
+	addonEnv.addon  = addon  --// makes `function Initizalize` & `function addon.Initialize` point to the same data
+
+	--// copy the engine enviroment to the addon
+		tcopy(addonEnv, EG)
+
+	--// the shared table
+		addonEnv.SG = handler.SG
+
+	--// addon related methods
+		addonEnv.addon = {
+			Remove = handler.Remove,
+			IsMouseOwner = function() return (handler.mouseOwner == addon) end,
+			DisownMouse  = function()
+				if (handler.mouseOwner == addon) then
+					handler.mouseOwner = nil
+				end
+			end,
+			UpdateCallIn = function(name) handler:UpdateWidgetCallIn(name, addon) end,
+			RemoveCallIn = function(name) handler:RemoveWidgetCallIn(name, addon) end,
+			AddAction    = function(cmd, func, data, types) return actionHandler.AddWidgetAction(addon, cmd, func, data, types) end,
+			RemoveAction = function(cmd, types)             return actionHandler.RemoveWidgetAction(addon, cmd, types) end,
+--[[
+			AddLayoutCommand = function(_, cmd)
+				if (handler.inCommandsChanged) then
+					table.insert(handler.customCommands, cmd)
+				else
+					spEcho("AddLayoutCommand() can only be used in CommandsChanged()")
+				end
+			end,
+			GetCommands  = function() return handler.commands end,
+--]]
+			RegisterGlobal   = function(name, value) return handler:RegisterGlobal(addon, name, value) end,
+			DeregisterGlobal = function(name)        return handler:DeregisterGlobal(addon, name) end,
+			SetGlobal        = function(name, value) return handler:SetGlobal(addon, name, value) end,
+		}
+
+	--// insert handler
+		addonEnv.handler = handler
+		addonEnv[handler.name] = handler
+	return addon
+end
+
+
+function handler:NewAddonRev1()
+	local addonEnv = {}
+	local widget = addonEnv --// easy self referencing
+	addonEnv.widget = widget
+
+	--// copy the engine enviroment to the addon
+	tcopy(addonEnv, EG)
+	
+	--// the shared table
+	--widgetEnv.SG = handler.SG
+	addonEnv.WG = handler.SG
+
+	--// wrapped calls (closures)
+	local h = {}
+	addonEnv.handler = h
+	addonEnv[handler.name] = h
+	addonEnv.include = function(f) return include(f, widget) end
+	h.ForceLayout  = handler.ForceLayout
+	h.RemoveWidget = function() handler:Remove(widget, "auto") end
+	h.GetCommands  = function() return handler.commands end
+	h.GetViewSizes = handler.GetViewSizes
+	h.GetHourTimer = handler.GetHourTimer
+	h.IsMouseOwner = function() return (handler.mouseOwner == widget) end
+	h.DisownMouse  = function()
+		if (handler.mouseOwner == widget) then
+			handler.mouseOwner = nil
+		end
+	end
+
+	h.UpdateCallIn = function(_, name) handler:UpdateWidgetCallIn(name, widget) end
+	h.RemoveCallIn = function(_, name) handler:RemoveWidgetCallIn(name, widget) end
+
+	h.AddAction    = function(_, cmd, func, data, types) return actionHandler.AddWidgetAction(widget, cmd, func, data, types) end
+	h.RemoveAction = function(_, cmd, types)             return actionHandler.RemoveWidgetAction(widget, cmd, types) end
+
+	h.AddLayoutCommand = function(_, cmd)
+		if (handler.inCommandsChanged) then
+			table.insert(handler.customCommands, cmd)
+		else
+			spEcho("AddLayoutCommand() can only be used in CommandsChanged()")
+		end
+	end
+	h.ConfigLayoutHandler = handler.ConfigLayoutHandler
+
+	h.RegisterGlobal   = function(_, name, value) return handler:RegisterGlobal(widget, name, value) end
+	h.DeregisterGlobal = function(_, name)        return handler:DeregisterGlobal(widget, name) end
+	h.SetGlobal        = function(_, name, value) return handler:SetGlobal(widget, name, value) end
+
+	return addonEnv
+end
+
+
+function handler:ParseAddonRev2(filepath, _VFSMODE)
+	_VFSMODE = _VFSMODE or VFSMODE
+	local basename = Basename(filepath)
+
+	--// load the code
+	local addonEnv = handler:NewWidgetRev2()
+	local success, err = pcall(VFS.Include, filepath, addonEnv, _VFSMODE)
+	if (not success) then
+		spEcho('Failed to load: ' .. basename .. '  (' .. err .. ')')
+		return nil
+	end
+	if (err == false) then
+		return nil --// addon asked for a silent death
+	end
+
+	local addon = addonEnv.addon
+
+	--// Validate Callins
+	err = ValidateAddon(addon)
+	if (err) then
+		spEcho('Failed to load: ' .. basename .. '  (' .. err .. ')')
+		return nil
+	end
+
+	return addon
+end
+
+
+function handler:ParseAddonRev1(filepath, _VFSMODE)
+	_VFSMODE = _VFSMODE or VFSMODE
+	local basename = Basename(filepath)
+
+	--// load the code
+	local addonEnv = handler:NewAddonRev1()
+	local success, err = pcall(VFS.Include, filepath, addonEnv, _VFSMODE)
+	if (not success) then
+		spEcho('Failed to load: ' .. basename .. '  (' .. err .. ')')
+		return nil
+	end
+	if (err == false) then
+		return nil --// addon asked for a silent death
+	end
+
+	local addon = addonEnv.widget
+
+	--// Validate Callins
+	err = ValidateAddon(addon)
+	if (err) then
+		spEcho('Failed to load: ' .. basename .. '  (' .. err .. ')')
+		return nil
+	end
+
+	return addon
+end
+
+
+function handler:ParseAddon(ki, filepath, _VFSMODE)
+	if ((ki._rev or 0) >= 2) then
+		return handler:ParseAddonRev2(filepath, _VFSMODE)
+	else
+		return handler:ParseAddonRev1(filepath, _VFSMODE)
+	end
+end
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+function handler:GetFancyString(name, str)
+	if not str then str = name end
+	local ki = handler.knownWidgets[name]
+	if ki then
+		if ki.fromZip then
+			return ("<%s>"):format(str)
+		else
+			return ("*%s*"):format(str)
+		end
+	else
+		return ("(%s)"):format(str)
+	end
+end
+
+
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Callin Closures
@@ -606,316 +953,16 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
--- Addon Info
-
-function handler:LoadWidgetInfo(filepath, _VFSMODE)
-	local err, wi = self:LoadWidgetRev2Info(filepath, _VFSMODE)
-	if (err == true) then
-		return nil --// widget asked for a silent death
-	end
-	if (not wi) then
-		--// try to load it as rev1 addon
-		local widget = self:ParseWidgetRev1(filepath, _VFSMODE)
-		if (widget) then
-			err, wi = self:LoadWidgetRev1Info(widget, filepath)
-		end
-	end
-
-	--// fail
-	if (not wi) then
-		--spEcho(err)
-		return nil
-	end
-
-	--// create checksum for rev1 addons
-	if (wi._rev <= 1) then
-		wi.checksum = VFS.GetFileChecksum(wi.filepath, _VFSMODE or VFSMODE)
-	end
-
-	--// check if it's loaded from a zip (game or map)
-	wi.fromZip = true
-	if (_VFSMODE == VFS.ZIP_FIRST) then
-		wi.fromZip = VFS.FileExists(wi.filepath,VFS.ZIP_ONLY)
-	else
-		wi.fromZip = not VFS.FileExists(wi.filepath,VFS.RAW_ONLY)
-	end
-
-	--// causality
-	tappend(wi.after, wi.depend)
-
-	--// validate
-	err = self:ValidateKnownInfo(wi, _VFSMODE)
-	if (err) then
-		spEcho(err)
-		return nil
-	end
-
-	return wi
-end
-
-
-local function GetDefaultKnownInfo(filepath, basename)
-	return {
-		filepath = filepath,
-		basename = basename,
-		name     = basename,
-		version  = "0.1",
-		layer    = 0,
-		desc     = "",
-		author   = "",
-		license  = "",
-		enabled  = false,
-		api      = false,
-		handler  = false,
-		before   = {},
-		after    = {},
-		depend   = {},
-		_rev     = 0,
-	}
-end
-
-
-function handler:LoadWidgetRev2Info(filepath, _VFSMODE)
-	local basename = Basename(filepath)
-
-	local wi = GetDefaultKnownInfo(filepath, basename)
-	wi._rev = 2
-
-	_VFSMODE = _VFSMODE or VFSMODE
-	local loadEnv = {INFO = true; math = math}
-
-	local success, rvalue = pcall(VFS.Include, filepath, loadEnv, _VFSMODE)
-		if not success then
-			return "Failed to load: " .. basename .. "  (" .. rvalue .. ")"
-		end
-		if rvalue == false then
-			return true --// addon asked for a silent death
-		end
-		if type(rvalue) ~= "table" then
-			return "Wrong return value: " .. basename
-		end
-
-	tcopy(wi, rvalue)
-	return false, wi
-end
-
-
-function handler:LoadWidgetRev1Info(widget, filepath)
-	local basename = Basename(filepath)
-
-	local wi = GetDefaultKnownInfo(filepath, basename)
-	wi._rev = 1
-
-	if (widget.GetInfo) then
-		local rvalue = SafeCallAddon(widget, "GetInfo")
-		if type(rvalue) ~= "table" then
-			return "Failed to call GetInfo() in: " .. basename
-		else
-			tcopy(wi, rvalue)
-		end
-	else
-		return "Missing GetInfo() in: " .. basename
-	end
-
-	return false, wi
-end
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
--- Widget Parsing
-
-function handler:NewWidgetRev2()
-	local addonEnv = {}
-	local addon = addonEnv
-	addonEnv.addon = addon  --// makes `function Initizalize` & `function widget.Initialize` point to the same data
-
-	--// copy the engine enviroment to the addon
-		tcopy(addonEnv, EG)
-
-	--// the shared table
-		addonEnv.SG = self.SG
-	--// insert handler
-		addonEnv.handler = handler
-		addonEnv[handler.name] = handler
-	return addon
-end
-
-
-function handler:ParseWidgetRev2(filepath, _VFSMODE)
-	_VFSMODE = _VFSMODE or VFSMODE
-	local basename = Basename(filepath)
-
-	--// load the code
-	local widgetEnv = self:NewWidgetRev2()
-	local success, err = pcall(VFS.Include, filepath, widgetEnv, _VFSMODE)
-	if (not success) then
-		spEcho('Failed to load: ' .. basename .. '  (' .. err .. ')')
-		return nil
-	end
-	if (err == false) then
-		return nil --// addon asked for a silent death
-	end
-
-	local widget = widgetEnv.widget
-
-	--// Validate Callins
-	err = self:ValidateWidget(widget)
-	if (err) then
-		spEcho('Failed to load: ' .. basename .. '  (' .. err .. ')')
-		return nil
-	end
-
-	return widget
-end
-
-
-function handler:ParseWidgetRev1(filepath, _VFSMODE)
-	_VFSMODE = _VFSMODE or VFSMODE
-	local basename = Basename(filepath)
-
-	--// load the code
-	local widgetEnv = self:NewWidgetRev1()
-	local success, err = pcall(VFS.Include, filepath, widgetEnv, _VFSMODE)
-	if (not success) then
-		spEcho('Failed to load: ' .. basename .. '  (' .. err .. ')')
-		return nil
-	end
-	if (err == false) then
-		return nil --// addon asked for a silent death
-	end
-
-	local widget = widgetEnv.widget
-
-	--// Validate Callins
-	err = self:ValidateWidget(widget)
-	if (err) then
-		spEcho('Failed to load: ' .. basename .. '  (' .. err .. ')')
-		return nil
-	end
-
-	return widget
-end
-
-
-function handler:NewWidgetRev1()
-	local widgetEnv = {}
-	local widget = widgetEnv --// easy self referencing
-	widgetEnv.widget = widget
-
-	--// copy the engine enviroment to the addon
-	tcopy(widgetEnv, EG)
-	
-	--// the shared table
-	--widgetEnv.SG = self.SG
-	widgetEnv.WG = self.SG
-
-	--// wrapped calls (closures)
-	local h = {}
-	widgetEnv.handler = h
-	widgetEnv[handler.name] = h
-	widgetEnv.include = function(f) return include(f, widget) end
-	h.ForceLayout  = handler.ForceLayout
-	h.RemoveWidget = function() handler:Remove(widget, "auto") end
-	h.GetCommands  = function() return handler.commands end
-	h.GetViewSizes = handler.GetViewSizes
-	h.GetHourTimer = handler.GetHourTimer
-	h.IsMouseOwner = function() return (handler.mouseOwner == widget) end
-	h.DisownMouse  = function()
-		if (handler.mouseOwner == widget) then
-			handler.mouseOwner = nil
-		end
-	end
-
-	h.UpdateCallIn = function(_, name) handler:UpdateWidgetCallIn(name, widget) end
-	h.RemoveCallIn = function(_, name) handler:RemoveWidgetCallIn(name, widget) end
-
-	h.AddAction    = function(_, cmd, func, data, types) return actionHandler.AddWidgetAction(widget, cmd, func, data, types) end
-	h.RemoveAction = function(_, cmd, types)             return actionHandler.RemoveWidgetAction(widget, cmd, types) end
-
-	h.AddLayoutCommand = function(_, cmd)
-		if (handler.inCommandsChanged) then
-			table.insert(handler.customCommands, cmd)
-		else
-			spEcho("AddLayoutCommand() can only be used in CommandsChanged()")
-		end
-	end
-	h.ConfigLayoutHandler = handler.ConfigLayoutHandler
-
-	h.RegisterGlobal   = function(_, name, value) return handler:RegisterGlobal(widget, name, value) end
-	h.DeregisterGlobal = function(_, name)        return handler:DeregisterGlobal(widget, name) end
-	h.SetGlobal        = function(_, name, value) return handler:SetGlobal(widget, name, value) end
-
-	return widgetEnv
-end
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
-
-function handler:ValidateKnownInfo(ki, _VFSMODE)
-	if not ki then
-		return "No KnownInfo given"
-	end
-
-	--// load/create data
-	local knownInfo = self.knownWidgets[ki.name]
-	if (not knowInfo) then
-		knownInfo = {}
-		self.knownWidgets[ki.name] = knownInfo
-	end
-
-	--// check for duplicated name
-	if (knownInfo.filepath)and(knownInfo.filepath ~= ki.filepath) then
-		return "Failed to load: " .. ki.basename .. " (duplicate name)"
-	end
-
-	--// create/update a knownInfo table
-	tcopy(knownInfo, ki) --// update table
-
-	--// update so widgets can see if something got changed
-	self.knownChanged = self.knownChanged + 1
-end
-
-
-function handler:ValidateWidget(widget)
-	if (widget.GetTooltip and not widget.IsAbove) then
-		return "Widget has GetTooltip() but not IsAbove()"
-	end
-	return nil
-end
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
-
-function handler:GetFancyString(name, str)
-	if not str then str = name end
-	local ki = self.knownWidgets[name]
-	if ki then
-		if ki.fromZip then
-			return ("<%s>"):format(str)
-		else
-			return ("*%s*"):format(str)
-		end
-	else
-		return ("(%s)"):format(str)
-	end
-end
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
 
 function handler:Load(filepath, _VFSMODE)
 	--FIXME handler:AllowWidgetLoading(filepath)
 
 	--// Load KnownInfo
-	local name = self:FindNameByPath(filepath)
-	local ki = name and self.knownWidgets[name]
+	local name = handler:FindNameByPath(filepath)
+	local ki = name and handler.knownWidgets[name]
 	if (not ki)or((ki._rev or 0) < 2) then
-		self:LoadWidgetInfo(filepath, _VFSMODE)
-		ki = name and self.knownWidgets[name]
+		handler:LoadWidgetInfo(filepath, _VFSMODE)
+		ki = name and handler.knownWidgets[name]
 	end
 	if (not ki) then
 		return
@@ -924,127 +971,124 @@ function handler:Load(filepath, _VFSMODE)
 	--// check dependencies
 	for i=1,#ki.depend do
 		local dep = ki.depend[i]
-		if not (self.knownWidgets[dep] or {}).active then
+		if not (handler.knownWidgets[dep] or {}).active then
 			spEcho(("%s: Missing/Unloaded dependency \"%s\" for \"%s\"."):format(LUA_NAME, dep, name))
 			return
 		end
 	end
 
-	--// Load Widget
-	local widget
-	if ((ki._rev or 0) >= 2) then
-		widget = self:ParseWidgetRev2(filepath, _VFSMODE)
-	else
-		widget = self:ParseWidgetRev1(filepath, _VFSMODE)
-	end
-	if (not widget) then
+	--// Load Addon
+	local addon = handler:ParseAddon(ki, filepath, _VFSMODE)
+	if (not addon) then
 		return
 	end
 
-	--// Link KnownInfo with widget
+	--// Link KnownInfo with addon
 	local mt = {
 		__index = ki,
 		__newindex = function() error("_info tables are read-only") end,
 		__metatable = "protected"
 	}
-	widget._info = setmetatable({}, mt)
-	widget.whInfo = widget._info --//backward compability
+	addon._info = setmetatable({}, mt)
+	addon.whInfo = addon._info --//backward compability
 
 	--// Verbose
-	local name = widget._info.name
-	local basename = widget._info.basename
+	local name = addon._info.name
+	local basename = addon._info.basename
 
-	if (self.verbose or self.initialized) then
-		local loadingstr = "Loading widget: " .. ((self.initialized and "") or "    ") --// the concat is done to align it with the api string! (the one beneath)
+	if (handler.verbose or handler.initialized) then
+		local loadingstr = "Loading widget: " .. ((handler.initialized and "") or "    ") --// the concat is done to align it with the api string! (the one beneath)
 		if (ki.api) then
 			loadingstr = "Loading API widget: "
 		end
-		spEcho(("%s %-21s  %s"):format(loadingstr, name, self:GetFancyString(name,basename)))
+		spEcho(("%s %-21s  %s"):format(loadingstr, name, handler:GetFancyString(name,basename)))
 	end
 
 	--// Add to handler
 	ki.active = true
-	self.widgets:Insert(widget, widget)
+	handler.addons:Insert(addon, addon)
 
-	--// Unsafe widget (don't use pcall for callins)
-	if (SAFEWRAP == 1)and(widget._info.unsafe) then
-		spEcho(LUA_NAME .. ': loaded unsafe widget: ' .. name)
+	--// Unsafe addon (don't use pcall for callins)
+	if (SAFEWRAP == 1)and(addon._info.unsafe) then
+		spEcho(('%s: loaded unsafe %s: %s'):format(LUA_NAME, handler.addonName, name))
 	end
 
 	--// Link the CallIns
-	for ciName,ciFunc in knownCallins(widget) do
-		InsertAddonCallIn(ciName, widget)
+	for ciName,ciFunc in knownCallins(addon) do
+		InsertAddonCallIn(ciName, addon)
 	end
-	self:UpdateCallIns()
+	handler:UpdateCallIns()
 
 	--// Raw access to the handler
 	if (ki.handler) then --FIXME rev2
-		widget.handler = self
-		widget.widgetHandler = self
+		addon.handler = handler
+		addon.widgetHandler = handler
 	end
 
-	--// Initialize the widget
-	if (widget.Initialize) then
-		SafeCallAddon(widget, "Initialize")
+	--// Initialize the addon
+	if (addon.Initialize) then
+		SafeCallAddon(addon, "Initialize")
 	end
 
 	--// Load the config data  
-	local config = self.configData[name]
-	if (widget.SetConfigData and config) then
-		SafeCallAddon(widget, "SetConfigData", config)
+	local config = handler.configData[name]
+	if (addon.SetConfigData and config) then
+		SafeCallAddon(addon, "SetConfigData", config)
 	end
 
-	--// inform other widgets
+	--// inform other addons
 	handler:WidgetAdded(name)
+	handler:AddonAdded(name)
 end
 
 
-function handler:Remove(widget, _reason)
-	if not widget then
-		widget = getfenv(2)
+function handler:Remove(addon, _reason)
+	if not addon then
+		addon = getfenv(2)
 	end
 
-	if (type(widget) ~= "table")or(type(widget._info) ~= "table")or(not widget._info.name) then
+	if (type(addon) ~= "table")or(type(addon._info) ~= "table")or(not addon._info.name) then
 		error "Wrong input to handler:Remove()"
 	end
 
 	--// Try clean exit
-	local name = widget._info.name
+	local name = addon._info.name
 	local ki = handler.knownWidgets[name]
 	if (not ki.active) then
 		return
 	end
 	ki.active = false
-	handler:SaveWidgetConfigData(widget)
-	if (widget.Shutdown) then
-		local ok, err = pcall(widget.Shutdown, widget)
+	handler:SaveWidgetConfigData(addon)
+	if (addon.Shutdown) then
+		local ok, err = pcall(addon.Shutdown, addon)
 		if not ok then
 			spEcho('Error in Shutdown(): ' .. tostring(err))
 		end
 	end
 
 	--// Remove any links in the handler
-	handler:RemoveWidgetGlobals(widget)
-	actionHandler.RemoveWidgetActions(widget)
-	handler.widgets:Remove(widget)
-	RemoveAddonCallIns(widget)
+	handler:RemoveWidgetGlobals(addon)
+	actionHandler.RemoveWidgetActions(addon)
+	handler.addons:Remove(addon)
+	RemoveAddonCallIns(addon)
 	handler:UpdateCallIns()
 
 	--// check dependencies
 	local rem = {}
-	for _,w in handler.addons:iter() do
-		if tfind(w._info.depend, name) then
-			rem[#rem+1] = w
+	for _,ao in handler.addons:iter() do
+		if tfind(ao._info.depend, name) then
+			rem[#rem+1] = ao
 		end
 	end
 	for i=1,#rem do
 		local ki2 = rem[i]._info
-		spEcho(("Removed widget:  %-21s  %s (dependent of \"%s\")"):format(ki2.name, handler:GetFancyString(ki2.name,ki2.basename),name))
+		spEcho(("Removed %s:  %-21s  %s (dependent of \"%s\")"):format(handler.addonName, ki2.name, handler:GetFancyString(ki2.name,ki2.basename),name))
 		handler:Remove(rem[i], "dependency")
 	end
 
 	--// inform other addons
 	handler:WidgetRemoved(name, _reason or "user")
+	handler:AddonRemoved(name, _reason or "user")
 end
 
 --// backward compab.
@@ -1061,7 +1105,7 @@ function handler:LoadOrderList()
 		if (not success) then
 			spEcho(LUA_NAME .. ': Failed to load: ' .. ORDER_FILENAME .. '  (' .. rvalue .. ')')
 		elseif (type(rvalue) == "table") then
-			self.orderList = rvalue
+			handler.orderList = rvalue
 		end
 	end
 end
@@ -1070,11 +1114,11 @@ end
 function handler:SaveOrderList()
 	--// update the current order
 	local i = 1
-	for _,w in self.addons:iter() do
-		self.orderList[w._info.name] = i
+	for _,addon in handler.addons:iter() do
+		handler.orderList[addon._info.name] = i
 		i = i + 1
 	end
-	table.save(self.orderList, ORDER_FILENAME, '-- Widget Order List  (0 disables a widget)')
+	table.save(handler.orderList, ORDER_FILENAME, '-- Widget Order List  (0 disables a widget)')
 end
 
 
@@ -1088,16 +1132,16 @@ function handler:LoadKnownData()
 		if (not success) then
 			spEcho(LUA_NAME .. ': Failed to load: ' .. KNOWN_FILENAME .. '  (' .. rvalue .. ')')
 		else
-			self.knownWidgets = rvalue
+			handler.knownWidgets = rvalue
 		end
 	end
 
-	for i,ki in pairs(self.knownWidgets) do
+	for i,ki in pairs(handler.knownWidgets) do
 		ki.active = nil
 
 		--// Remove non-existing entries
 		if not VFS.FileExists(ki.filepath or "", (ki.fromZip and VFS.ZIP_ONLY) or VFS.RAW_ONLY) then
-			self.knownWidgets[i] = nil
+			handler.knownWidgets[i] = nil
 		end
 	end
 end
@@ -1105,7 +1149,7 @@ end
 
 function handler:SaveKnownData()
 	local t = {}
-	for i,v in pairs(self.knownWidgets) do
+	for i,v in pairs(handler.knownWidgets) do
 		if ((v._rev or 0) <= 1) then --// Don't save/cache rev2 addons (there is no safety problem to get their info)
 			t[i] = v
 		end
@@ -1117,35 +1161,35 @@ end
 
 function handler:LoadConfigData()
 	if VFS.FileExists(CONFIG_FILENAME) then
-		self.configData = VFS.Include(CONFIG_FILENAME, {})
+		handler.configData = VFS.Include(CONFIG_FILENAME, {})
 	end
-	self.configData = self.configData or {}
+	handler.configData = handler.configData or {}
 end
 
 
-function handler:SaveWidgetConfigData(widget)
-	if (widget.GetConfigData) then
-		local name = widget._info.name 
-		self.configData[name] = SafeCallAddon(widget, "GetConfigData")
+function handler:SaveWidgetConfigData(addon)
+	if (addon.GetConfigData) then
+		local name = addon._info.name 
+		handler.configData[name] = SafeCallAddon(addon, "GetConfigData")
 	end
 end
 
 
 function handler:SaveConfigData()
-	self:LoadConfigData()
-	for _,w in self.addons:iter() do
-		self:SaveWidgetConfigData(w)
+	handler:LoadConfigData()
+	for _,addon in handler.addons:iter() do
+		handler:SaveWidgetConfigData(addon)
 	end
-	table.save(self.configData, CONFIG_FILENAME, '-- Widget Custom Data')
+	table.save(handler.configData, CONFIG_FILENAME, '-- Widget Custom Data')
 end
 
 
 function handler:SendConfigData()
-	self:LoadConfigData()
-	for _,w in self.addons:iter() do
-		local data = self.configData[w._info.name]
-		if (w.SetConfigData and data) then
-			SafeCallAddon(w, "SetConfigData", data)
+	handler:LoadConfigData()
+	for _,addon in handler.addons:iter() do
+		local data = handler.configData[addon._info.name]
+		if (addon.SetConfigData and data) then
+			SafeCallAddon(addon, "SetConfigData", data)
 		end
 	end
 end
@@ -1156,7 +1200,7 @@ end
 -- Enable/Disable/Toggle Addons
 
 function handler:FindByName(name)
-	for _,addon in self.addons:iter() do
+	for _,addon in handler.addons:iter() do
 		if (addon._info.name == name) then
 			return addon
 		end
@@ -1165,7 +1209,7 @@ end
 
 
 function handler:Enable(name)
-	local ki = self.knownWidgets[name]
+	local ki = handler.knownWidgets[name]
 	if (not ki) then
 		spEcho(LUA_NAME .. "::Enable: Couldn\'t find \"" .. name .. "\".")
 		return false
@@ -1176,16 +1220,16 @@ function handler:Enable(name)
 
 	local order = handler.orderList[name]
 	if ((order or 0) <= 0) then
-		self.orderList[name] = 1
+		handler.orderList[name] = 1
 	end
-	self:Load(ki.filepath)
-	self:SaveOrderList()
+	handler:Load(ki.filepath)
+	handler:SaveOrderList()
 	return true
 end
 
 
 function handler:Disable(name)
-	local ki = self.knownWidgets[name]
+	local ki = handler.knownWidgets[name]
 	if (not ki) then
 		spEcho(LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
 		return false
@@ -1194,12 +1238,12 @@ function handler:Disable(name)
 		return false
 	end
 
-	local w = self:FindByName(name)
-	if (w) then
-		spEcho(("Removed widget:  %-21s  %s"):format(name, self:GetFancyString(name,ki.basename)))
-		self:Remove(w) --// deactivate
-		self.orderList[name] = 0 --// disable
-		self:SaveOrderList()
+	local addon = handler:FindByName(name)
+	if (addon) then
+		spEcho(("Removed widget:  %-21s  %s"):format(name, handler:GetFancyString(name,ki.basename)))
+		handler:Remove(addon) --// deactivate
+		handler.orderList[name] = 0 --// disable
+		handler:SaveOrderList()
 		return true
 	else
 		spEcho(LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
@@ -1208,20 +1252,20 @@ end
 
 
 function handler:Toggle(name)
-	local ki = self.knownWidgets[name]
+	local ki = handler.knownWidgets[name]
 	if (not ki) then
 		spEcho(LUA_NAME .. "::Toggle: Couldn\'t find \"" .. name .. "\".")
 		return
 	end
 
 	if (ki.active) then
-		return self:Disable(name)
-	elseif (self.orderList[name] <= 0) then
-		return self:Enable(name)
+		return handler:Disable(name)
+	elseif (handler.orderList[name] <= 0) then
+		return handler:Enable(name)
 	else
 		--// the addon is not active, but enabled; disable it
-		self.orderList[name] = 0
-		self:SaveOrderList()
+		handler.orderList[name] = 0
+		handler:SaveOrderList()
 	end
 	return true
 end
@@ -1239,29 +1283,29 @@ handler.ToggleWidget     = handler.Toggle
 function handler:RegisterGlobal(owner, name, value)
 	if (name == nil)        or
 	   (_G[name])           or
-	   (self.globals[name]) or
+	   (handler.globals[name]) or
 	   (engineCallIns[name])
 	then
 		return false
 	end
 	_G[name] = value
-	self.globals[name] = owner
+	handler.globals[name] = owner
 	return true
 end
 
 
 function handler:DeregisterGlobal(owner, name)
-	if ((name == nil) or (self.globals[name] and (self.globals[name] ~= owner))) then
+	if ((name == nil) or (handler.globals[name] and (handler.globals[name] ~= owner))) then
 		return false
 	end
 	_G[name] = nil
-	self.globals[name] = nil
+	handler.globals[name] = nil
 	return true
 end
 
 
 function handler:SetGlobal(owner, name, value)
-	if ((name == nil) or (self.globals[name] ~= owner)) then
+	if ((name == nil) or (handler.globals[name] ~= owner)) then
 		return false
 	end
 	_G[name] = value
@@ -1271,10 +1315,10 @@ end
 
 function handler:RemoveWidgetGlobals(owner)
 	local count = 0
-	for name, o in pairs(self.globals) do
+	for name, o in pairs(handler.globals) do
 		if (o == owner) then
 			_G[name] = nil
-			self.globals[name] = nil
+			handler.globals[name] = nil
 			count = count + 1
 		end
 	end
@@ -1329,15 +1373,15 @@ end
 
 function handler:UpdateCallIn(ciName)
 	--// known callin?
-	if (not self.knownCallIns[ciName]) then
+	if (not handler.knownCallIns[ciName]) then
 		return
 	end
 
 	--// always create the hook functions, so addons can use them via e.g. handler:GetTooltip(x,y)
-	local hookfunc = self.callInHookFuncs[ciName]
+	local hookfunc = handler.callInHookFuncs[ciName]
 	if (not hookfunc) then
 		hookfunc = CreateHookFunc(ciName)
-		self.callInHookFuncs[ciName] = hookfunc
+		handler.callInHookFuncs[ciName] = hookfunc
 	end
 
 	--// non-engine callins don't need to be exported to the engine
@@ -1345,7 +1389,7 @@ function handler:UpdateCallIn(ciName)
 		return
 	end
 
-	local ciList = self.callInLists[ciName]
+	local ciList = handler.callInLists[ciName]
 
 	if ((ciList.first) or
 	    (staticCallInList[ciName]) or
@@ -1366,30 +1410,30 @@ function handler:UpdateCallIn(ciName)
 end
 
 
-function handler:UpdateWidgetCallIn(name, w)
-	local func = w[name]
+function handler:UpdateWidgetCallIn(name, addon)
+	local func = addon[name]
 	local result = false
 	if (type(func) == 'function') then
-		result = InsertAddonCallIn(name, w)
+		result = InsertAddonCallIn(name, addon)
 	else
-		result = RemoveAddonCallIn(name, w)
+		result = RemoveAddonCallIn(name, addon)
 	end
 	if result then
-		self:UpdateCallIn(name)
+		handler:UpdateCallIn(name)
 	end
 end
 
 
-function handler:RemoveWidgetCallIn(name, w)
-	if RemoveAddonCallIn(name, w) then
-		self:UpdateCallIn(name)
+function handler:RemoveWidgetCallIn(name, addon)
+	if RemoveAddonCallIn(name, addon) then
+		handler:UpdateCallIn(name)
 	end
 end
 
 
 function handler:UpdateCallIns()
 	for ciName in pairs(knownCallIns) do
-		self:UpdateCallIn(ciName)
+		handler:UpdateCallIn(ciName)
 	end
 end
 
