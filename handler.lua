@@ -776,38 +776,39 @@ end
 
 function handler:NewAddonRev1()
 	local addonEnv = {}
-	local widget = addonEnv --// easy self referencing
-	addonEnv.widget = widget
+	local addon = addonEnv --// easy self referencing
+	addonEnv.addon  = addon
+	addonEnv.widget = addon
 
 	--// copy the engine enviroment to the addon
 	tcopy(addonEnv, EG)
 	
 	--// the shared table
-	--widgetEnv.SG = handler.SG
+	addonEnv.SG = handler.SG
 	addonEnv.WG = handler.SG
 
 	--// wrapped calls (closures)
 	local h = {}
 	addonEnv.handler = h
 	addonEnv[handler.name] = h
-	addonEnv.include = function(f) return include(f, widget) end
+	addonEnv.include = function(f) return include(f, addon) end
 	h.ForceLayout  = handler.ForceLayout
-	h.RemoveWidget = function() handler:Remove(widget, "auto") end
+	h.RemoveWidget = function() handler:Remove(addon, "auto") end
 	h.GetCommands  = function() return handler.commands end
 	h.GetViewSizes = handler.GetViewSizes
 	h.GetHourTimer = handler.GetHourTimer
-	h.IsMouseOwner = function() return (handler.mouseOwner == widget) end
+	h.IsMouseOwner = function() return (handler.mouseOwner == addon) end
 	h.DisownMouse  = function()
-		if (handler.mouseOwner == widget) then
+		if (handler.mouseOwner == addon) then
 			handler.mouseOwner = nil
 		end
 	end
 
-	h.UpdateCallIn = function(_, name) handler:UpdateWidgetCallIn(name, widget) end
-	h.RemoveCallIn = function(_, name) handler:RemoveWidgetCallIn(name, widget) end
+	h.UpdateCallIn = function(_, name) handler:UpdateWidgetCallIn(name, addon) end
+	h.RemoveCallIn = function(_, name) handler:RemoveWidgetCallIn(name, addon) end
 
-	h.AddAction    = function(_, cmd, func, data, types) return actionHandler.AddWidgetAction(widget, cmd, func, data, types) end
-	h.RemoveAction = function(_, cmd, types)             return actionHandler.RemoveWidgetAction(widget, cmd, types) end
+	h.AddAction    = function(_, cmd, func, data, types) return actionHandler.AddWidgetAction(addon, cmd, func, data, types) end
+	h.RemoveAction = function(_, cmd, types)             return actionHandler.RemoveWidgetAction(addon, cmd, types) end
 
 	h.AddLayoutCommand = function(_, cmd)
 		if (handler.inCommandsChanged) then
@@ -818,9 +819,9 @@ function handler:NewAddonRev1()
 	end
 	h.ConfigLayoutHandler = handler.ConfigLayoutHandler
 
-	h.RegisterGlobal   = function(_, name, value) return handler:RegisterGlobal(widget, name, value) end
-	h.DeregisterGlobal = function(_, name)        return handler:DeregisterGlobal(widget, name) end
-	h.SetGlobal        = function(_, name, value) return handler:SetGlobal(widget, name, value) end
+	h.RegisterGlobal   = function(_, name, value) return handler:RegisterGlobal(addon, name, value) end
+	h.DeregisterGlobal = function(_, name)        return handler:DeregisterGlobal(addon, name) end
+	h.SetGlobal        = function(_, name, value) return handler:SetGlobal(addon, name, value) end
 
 	return addonEnv
 end
