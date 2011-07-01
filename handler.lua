@@ -658,6 +658,8 @@ do
 
 
 	function handler:LoadWidgetInfo(filepath, _VFSMODE)
+		--FIXME check checksum for rev1 addons!
+		
 		--// update so addons can see if something got changed
 		handler.knownChanged = handler.knownChanged + 1
 
@@ -958,12 +960,7 @@ function handler:Load(filepath, _VFSMODE)
 	--FIXME handler:AllowWidgetLoading(filepath)
 
 	--// Load KnownInfo
-	local name = handler:FindNameByPath(filepath)
-	local ki = name and handler.knownWidgets[name]
-	if (not ki)or((ki._rev or 0) < 2) then
-		handler:LoadWidgetInfo(filepath, _VFSMODE)
-		ki = name and handler.knownWidgets[name]
-	end
+	local ki = handler:LoadWidgetInfo(filepath, _VFSMODE)
 	if (not ki) then
 		return
 	end
@@ -972,7 +969,7 @@ function handler:Load(filepath, _VFSMODE)
 	for i=1,#ki.depend do
 		local dep = ki.depend[i]
 		if not (handler.knownWidgets[dep] or {}).active then
-			spEcho(("%s: Missing/Unloaded dependency \"%s\" for \"%s\"."):format(LUA_NAME, dep, name))
+			spEcho(("%s: Missing/Unloaded dependency \"%s\" for \"%s\"."):format(LUA_NAME, dep, ki.name))
 			return
 		end
 	end
