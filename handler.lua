@@ -62,8 +62,8 @@ if (not VFS.GetFileChecksum) then
 	function VFS.GetFileChecksum(file, _VFSMODE)
 		local data = VFS.LoadFile(file, _VFSMODE)
 		if (data) then
-			local datalen     = data:len()/4
-			local striplength = 1024*10 --10kB
+			local datalen     = data:len()/4 --// x/4 cause we use UnpackU32
+			local striplength = 1024*2 --// 2kB
 
 			if (striplength >= datalen) then
 				local bytes = VFS.UnpackU32(data,nil,datalen)
