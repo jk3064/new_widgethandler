@@ -131,19 +131,15 @@ end
 --------------------------------------------------------------------------------
 -- A Lua List Object
 
-local function SortFuncExtension(ki1, ki2)
-	if tfind(ki1.before, ki2.name) or tfind(ki2.after, ki1.name) then
-		return true
-	end
-	if tfind(ki2.before, ki1.name) or tfind(ki1.after, ki2.name) then
-		return false
-	end
-	
-	if tfind(ki1.before, "all") then
-		return true
-	end
-	if tfind(ki2.before, "all") then
-		return false
+local function SortAddonsFunc(ki1, ki2)
+	local one_before_two = tfind(ki1.before, ki2.name) or tfind(ki2.after, ki1.name)
+	local two_before_one = tfind(ki2.before, ki1.name) or tfind(ki1.after, ki2.name)
+
+
+	local one_before_all = tfind(ki1.before, "all")
+	local two_before_all = tfind(ki2.before, "all")
+	if (one_before_all ~= two_before_all) then
+		return one_before_all
 	end
 
 	if (ki1.api ~= ki2.api) then
@@ -182,7 +178,7 @@ handler = {
 	verbose = true;
 	autoUserWidgets = true; --// if false it auto disables widgets from rawFS
 
-	addons       = CreateList("addons", SortFuncExtension); --// all loaded addons
+	addons       = CreateList("addons", SortAddonsFunc); --// all loaded addons
 	configData   = {};
 	orderList    = {};
 	knownWidgets = {}; --// cached Load...Info() results of all known/available Addons (even unloaded ones)
@@ -197,7 +193,7 @@ handler = {
 	globals = {}; --// global vars/funcs
 
 	knownCallIns    = {};
-	callInLists     = setmetatable({}, {__index = function(self, key) self[key] = CreateList(key, SortFuncExtension); return self[key]; end});
+	callInLists     = setmetatable({}, {__index = function(self, key) self[key] = CreateList(key, SortAddonsFunc); return self[key]; end});
 	callInHookFuncs = {};
 
 	mouseOwner  = nil;
@@ -348,7 +344,7 @@ function handler:UpdateAddonList()
 		local ki1 = handler.knownWidgets[n1]
 		local ki2 = handler.knownWidgets[n2]
 		--assert(wi1 and wi2)
-		return SortFuncExtension(ki1 or emptyTable, ki2 or emptyTable)
+		return SortAddonsFunc(ki1 or emptyTable, ki2 or emptyTable)
 	end
 	table.sort(loadList, SortFunc)
 
