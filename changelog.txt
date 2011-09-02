@@ -1,0 +1,15 @@
+addon handler 1.0 (widget part)
+
+changelog
+ * step into unified handler between widgets & gadgets
+ * widgetHandler: is now available via handler: too (unification)
+ * new addon rev2 format (much safer and bit faster)
+ * new '/luaui callins' command
+ * new AddonLoaded callin
+ * new AddonRemoved callin
+ * new BlockAddon callin
+ * auto linking of engine supported callins
+ * new handler:AddNewCallIn() to add new custom callins at runtime
+ * new handler:SearchForNewAddons()
+ * safer removing of addons during callins
+ 
