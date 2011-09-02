@@ -12,7 +12,8 @@
 --------------------------------------------------------------------------------
 --FIXME name widgets & gadgets AddOns internally
 --FIXME rev2 & handler:Remove()
---FIXME add AllowWidgetLoading event
+--FIXME finish BlockAddon + add BlockWidget syn.
+--FIXME cleanup
 
 --// Note: all here included modules/utilities are auto exposed to the addons, too!
 require "setupdefs.lua"
@@ -62,8 +63,8 @@ if (not VFS.GetFileChecksum) then
 	function VFS.GetFileChecksum(file, _VFSMODE)
 		local data = VFS.LoadFile(file, _VFSMODE)
 		if (data) then
-			local datalen     = data:len()/4 --// x/4 cause we use UnpackU32
-			local striplength = 1024*2 --// 2kB
+			local datalen     = data:len()/4 --// 'x/4' cause we use UnpackU32
+			local striplength = 2 * 1024     --// 2kB
 
 			if (striplength >= datalen) then
 				local bytes = VFS.UnpackU32(data,nil,datalen)
@@ -176,7 +177,7 @@ handler = {
 	addonName = "widget";
 
 	verbose = true;
-	autoUserWidgets = true; --// if false it auto disables widgets from rawFS
+	autoUserWidgets = true; --// if false it auto disables widgets from rawFS (FIXME do via BlockAddon)
 
 	addons       = CreateList("addons", SortAddonsFunc); --// all loaded addons
 	configData   = {};
@@ -249,7 +250,7 @@ local engineCallIns = Script.GetCallInList() --// important!
 local knownCallIns = handler.knownCallIns
 for ciName,ciParams in pairs(engineCallIns) do
 	if (ciParams.controller and (not ciParams.unsynced) and (not Script.GetSynced())) then
-		--// skip synced only events when we are in an unsynced env.
+		--// skip synced only events when we are in an unsynced enviroment
 	else
 		knownCallIns[ciName] = ciParams
 	end
@@ -445,7 +446,7 @@ function handler:DetectEnabledAddons()
 				--// this will be an active addon
 				handler.orderList[ki.name] = order or 1235 --// back of the pack for unknown order
 
-				--//we don't auto start addons when just updating the available list
+				--// we don't auto start addons when just updating the available list
 				ki.active = (not handler.initialized)
 			else
 				--// deactive the addon
@@ -1014,7 +1015,9 @@ function handler:Load(filepath, _VFSMODE)
 	handler:UpdateCallIns()
 
 	--// Raw access to the handler
-	if (ki.handler) then --FIXME rev2
+	--// rev1 addons normally only got a 'faked' widgetHandler (see :NewAddonRev1)
+	--// via the code below they get access to the real one (if they want)
+	if (ki.handler and (ki._rev < 2)) then
 		addon.handler = handler
 		addon.widgetHandler = handler
 	end
@@ -1024,7 +1027,7 @@ function handler:Load(filepath, _VFSMODE)
 		SafeCallAddon(addon, "Initialize")
 	end
 
-	--// Load the config data  
+	--// Load the config data
 	local config = handler.configData[name]
 	if (addon.SetConfigData and config) then
 		SafeCallAddon(addon, "SetConfigData", config)
