@@ -199,6 +199,8 @@ handler = {
 
 	mouseOwner  = nil;
 	initialized = false;
+	
+	actionHandler = actionHandler; --for handler=true widgets
 }
 
 handler.AddonName = handler.addonName:gsub("^%l", string.upper) --// widget -> Widget
@@ -216,12 +218,13 @@ setmetatable(handler, {
 				if (self.callInHookFuncs[key]) then
 					return self.callInHookFuncs[key](...)
 				else
-					error(LUA_NAME .. ": No CallIn-Handler for \"" .. key .. "\"")
+					--error(LUA_NAME .. ": No CallIn-Handler for \"" .. key .. "\"")
+					Spring.Echo(LUA_NAME .. ": ERROR No CallIn-Handler for \"" .. key .. "\"") --no need for panic
 				end
 			end
 		end
 	end
-end})
+})
 
 
 --------------------------------------------------------------------------------
@@ -278,7 +281,6 @@ handler:AddNewCallIn("WidgetRemoved", true, false)    --// ''
 handler:AddNewCallIn("SelectionChanged", true, true)  --// (selection = {unitID1, unitID1}) -> [newSelection]
 handler:AddNewCallIn("CommandsChanged", true, false)  --// ()
 handler:AddNewCallIn("TextCommand", true, false)      --// ("command") -- renamed ConfigureLayout
-
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -749,7 +751,8 @@ function handler:NewAddonRev2()
 			RemoveCallIn = function(name) handler:RemoveWidgetCallIn(name, addon) end,
 			AddAction    = function(cmd, func, data, types) return actionHandler.AddWidgetAction(addon, cmd, func, data, types) end,
 			RemoveAction = function(cmd, types)             return actionHandler.RemoveWidgetAction(addon, cmd, types) end,
---[[
+			TextAction   = function(command)                return actionHandler.TextAction(command) end,
+			--[[
 			AddLayoutCommand = function(_, cmd)
 				if (handler.inCommandsChanged) then
 					table.insert(handler.customCommands, cmd)
@@ -806,6 +809,7 @@ function handler:NewAddonRev1()
 
 	h.AddAction    = function(_, cmd, func, data, types) return actionHandler.AddWidgetAction(addon, cmd, func, data, types) end
 	h.RemoveAction = function(_, cmd, types)             return actionHandler.RemoveWidgetAction(addon, cmd, types) end
+	h.TextAction   = function(_, command)                return actionHandler.TextAction(command) end
 
 	h.AddLayoutCommand = function(_, cmd)
 		if (handler.inCommandsChanged) then
@@ -855,7 +859,9 @@ end
 function handler:ParseAddonRev1(filepath, _VFSMODE)
 	_VFSMODE = _VFSMODE or VFSMODE
 	local basename = Basename(filepath)
-
+	if not VFS.FileExists(filepath, _VFSMODE) then --doesn't exist in this VFS
+	  return nil
+	end
 	--// load the code
 	local addonEnv = handler:NewAddonRev1()
 	local success, err = pcall(VFS.Include, filepath, addonEnv, _VFSMODE)
@@ -956,7 +962,25 @@ end
 
 function handler:Load(filepath, _VFSMODE)
 	--FIXME handler:AllowWidgetLoading(filepath)
-
+  
+--always load the newer version first
+	if (not _VFSMODE) or _VFSMODE == VFS.RAW_FIRST or _VFSMODE == VFS.ZIP_FIRST then 
+	  local ki_RAW = handler:LoadWidgetInfo(filepath, VFS.RAW_ONLY)
+	  if ki_RAW then
+	    local ki_ZIP = handler:LoadWidgetInfo(filepath, VFS.ZIP) --map and mod
+	    if ki_ZIP then
+	      local zipV, rawV = (tonumber(ki_ZIP.version) or -1), (tonumber(ki_RAW.version) or -1)
+	      if zipV ~= rawV then
+		if zipV > rawV then
+		  _VFSMODE = VFS.ZIP
+		else
+		  _VFSMODE = VFS.RAW_ONLY
+		end
+	      end
+	    end
+	  end
+	end
+	
 	--// Load KnownInfo
 	local ki = handler:LoadWidgetInfo(filepath, _VFSMODE)
 	if (not ki) then
@@ -1000,7 +1024,8 @@ function handler:Load(filepath, _VFSMODE)
 	end
 
 	--// Add to handler
-	ki.active = true
+	ki.active = true --doesn't seem to work
+	handler.knownWidgets[name].active = true
 	handler.addons:Insert(addon, addon)
 
 	--// Unsafe addon (don't use pcall for callins)
@@ -1104,6 +1129,17 @@ function handler:LoadOrderList()
 		elseif (type(rvalue) == "table") then
 			handler.orderList = rvalue
 		end
+	elseif OLD_CONFIG_FILENAME and VFS.FileExists(OLD_CONFIG_FILENAME) then --load the old config file
+	      local chunk, err = loadfile(OLD_CONFIG_FILENAME)
+	      if (chunk == nil) then
+		return
+	      else
+		spEcho(LUA_NAME .. ': Loading old config: ' .. OLD_CONFIG_FILENAME )
+		local tmp = {}
+		setfenv(chunk, tmp)
+		handler.orderList = chunk().order
+		handler.configData = chunk().data
+	      end
 	end
 end
 
@@ -1231,6 +1267,7 @@ function handler:Disable(name)
 		spEcho(LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
 		return false
 	end
+	local order = handler.orderList[name]
 	if (not ki.active)and((order or 0) > 0) then
 		return false
 	end
@@ -1457,6 +1494,7 @@ function hHookFuncs.Shutdown()
 	end
 end
 
+hHookFuncs.OriginalToggleWidget = function(name) handler:Toggle(name) end
 
 function hHookFuncs.ConfigureLayout(command)
 	if (command == 'reconf') then
@@ -1555,14 +1593,15 @@ end
 --  Keyboard call-ins
 
 function hHookFuncs.KeyPress(key, mods, isRepeat, label, unicode)
-	if (actionHandler.KeyAction(true, key, mods, isRepeat)) then
-		return true
-	end
 
-	for _,f in hCallInLists.KeyPress:iter() do
+  	for _,f in hCallInLists.KeyPress:iter() do
 		if f(key, mods, isRepeat, label, unicode) then
 			return true
 		end
+	end
+  
+	if (actionHandler.KeyAction(true, key, mods, isRepeat)) then
+		return true
 	end
 
 	return false
@@ -1570,14 +1609,15 @@ end
 
 
 function hHookFuncs.KeyRelease(key, mods, label, unicode)
-	if (actionHandler.KeyAction(false, key, mods, false)) then
-		return true
-	end
 
-	for _,f in hCallInLists.KeyRelease:iter() do
+  	for _,f in hCallInLists.KeyRelease:iter() do
 		if f(key, mods, label, unicode) then
 			return true
 		end
+	end
+  
+	if (actionHandler.KeyAction(false, key, mods, false)) then
+		return true
 	end
 
 	return false

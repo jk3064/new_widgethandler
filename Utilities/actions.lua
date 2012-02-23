@@ -266,13 +266,13 @@ actionHandler = {
 	RemoveWidgetActions = RemoveWidgetActions,
 
 	--used by rev1 widgets
-	oldSyntax = {
-		KeyAction           = function(_, ...) return KeyAction(...) end,
-		TextAction          = function(_, ...) return TextAction(...) end,
+	--oldSyntax = {
+		--KeyAction           = function(_, ...) return KeyAction(...) end,
+		--TextAction          = function(_, ...) return TextAction(...) end,
 		AddAction           = function(_, ...) return AddWidgetAction(...) end,
 		RemoveAction        = function(_, ...) return RemoveWidgetAction(...) end,
-		RemoveWidgetActions = function(_, ...) return RemoveWidgetActions(...) end,
-	}
+		--RemoveWidgetActions = function(_, ...) return RemoveWidgetActions(...) end,
+	--}
 	
 	--LuaRules
 	--GotChatMsg     = GotChatMsg
