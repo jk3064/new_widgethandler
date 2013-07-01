@@ -26,7 +26,7 @@ end
 -- Load
 --
 
-VFS.Include(LUAUI_DIRNAME .. 'utils.lua', nil, VFS.DEF_MODE)
+VFS.Include(LUAUI_DIRNAME .. 'Utilities/utils.lua', nil, VFS.DEF_MODE)
 
 --// Lua-based fonthandler (deprecated)
 require "fonts.lua"

@@ -237,7 +237,7 @@ function AddonRevs.ParseAddon(rev, filepath, _VFSMODE)
 	local addonEnv = (rev > 1) and NewAddonRev2() or NewAddonRev1()
 	local success, err = pcall(VFS.Include, filepath, addonEnv, _VFSMODE)
 	if (not success) then
-		Spring.Log(handler.name, "error", 'Failed to load: ' .. basename .. '  (' .. err .. ')')
+		Spring.Log(LUA_NAME, "error", 'Failed to load: ' .. basename .. '  (' .. err .. ')')
 		return nil
 	end
 	if (err == false) then
@@ -249,7 +249,7 @@ function AddonRevs.ParseAddon(rev, filepath, _VFSMODE)
 	--// Validate Callins
 	err = ValidateAddon(addon)
 	if (err) then
-		Spring.Log(handler.name, "error", 'Failed to load: ' .. basename .. '  (' .. err .. ')')
+		Spring.Log(LUA_NAME, "error", 'Failed to load: ' .. basename .. '  (' .. err .. ')')
 		return nil
 	end
 

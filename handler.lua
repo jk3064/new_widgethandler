@@ -271,7 +271,7 @@ function handler:UpdateAddonList()
 			if ki then
 				loadList[#loadList+1] = name
 			else
-				if (handler.verbose) then Spring.Log(handler.name, "warning", ("Couldn't find a %s named \"%s\""):format(handler.addonName, name)) end
+				if (handler.verbose) then Spring.Log(LUA_NAME, "warning", ("Couldn't find a %s named \"%s\""):format(handler.addonName, name)) end
 				handler.knownInfos[name] = nil
 				handler.orderList[name] = nil
 			end
@@ -434,7 +434,7 @@ function handler:LoadAddonInfo(filepath, _VFSMODE)
 
 	--// fail
 	if (not ki) then
-		if (err) then Spring.Log(handler.name, "warning", err) end
+		if (err) then Spring.Log(LUA_NAME, "warning", err) end
 		return nil
 	end
 
@@ -457,7 +457,7 @@ function handler:LoadAddonInfo(filepath, _VFSMODE)
 	--// validate
 	err = AddonRevs.ValidateKnownInfo(ki, _VFSMODE)
 	if (err) then
-		Spring.Log(handler.name, "warning", err)
+		Spring.Log(LUA_NAME, "warning", err)
 		return nil
 	end
 
@@ -514,7 +514,7 @@ local function InsertAddonCallIn(ciName, addon)
 		local swf = SafeWrapFunc(addon, f, ciName)
 		return handler.callInLists[ciName]:Insert(addon, swf)
 	elseif (handler.verbose) then
-		Spring.Log(handler.name, "warning", LUA_NAME .. "::InsertAddonCallIn: Unknown CallIn \"" .. ciName.. "\"")
+		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::InsertAddonCallIn: Unknown CallIn \"" .. ciName.. "\"")
 	end
 	return false
 end
@@ -525,7 +525,7 @@ local function RemoveAddonCallIn(ciName, addon)
 		addon[ciName .. "__"] = nil
 		return handler.callInLists[ciName]:Remove(addon)
 	elseif (handler.verbose) then
-		Spring.Log(handler.name, "warning", LUA_NAME .. "::RemoveAddonCallIn: Unknown CallIn \"" .. ciName.. "\"")
+		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::RemoveAddonCallIn: Unknown CallIn \"" .. ciName.. "\"")
 	end
 	return false
 end
@@ -550,11 +550,11 @@ function handler:Load(filepath, _VFSMODE)
 
 	if (ki.blocked) then
 		--// blocked
-		Spring.Log(handler.name, "warning", ("%s: blocked %s \"%s\"."):format(LUA_NAME, handler.AddonName, ki.name))
+		Spring.Log(LUA_NAME, "warning", ("%s: blocked %s \"%s\"."):format(LUA_NAME, handler.AddonName, ki.name))
 		return
 	elseif (ki.active) then
 		--// Already loaded?
-		Spring.Log(handler.name, "warning", ("%s: %s \"%s\" already loaded."):format(LUA_NAME, handler.AddonName, ki.name))
+		Spring.Log(LUA_NAME, "warning", ("%s: %s \"%s\" already loaded."):format(LUA_NAME, handler.AddonName, ki.name))
 		return
 	end
 
@@ -562,7 +562,7 @@ function handler:Load(filepath, _VFSMODE)
 	for i=1,#ki.depend do
 		local dep = ki.depend[i]
 		if not (handler.knownInfos[dep] or {}).active then
-			Spring.Log(handler.name, "warning", ("%s: Missing/Unloaded dependency \"%s\" for \"%s\"."):format(LUA_NAME, dep, ki.name))
+			Spring.Log(LUA_NAME, "warning", ("%s: Missing/Unloaded dependency \"%s\" for \"%s\"."):format(LUA_NAME, dep, ki.name))
 			return
 		end
 	end
@@ -597,7 +597,7 @@ function handler:Load(filepath, _VFSMODE)
 
 	--// Unsafe addon (don't use pcall for callins)
 	if (SAFEWRAP == 1)and(addon._info.unsafe) then
-		Spring.Log(handler.name, "warning", ('%s: loaded unsafe %s: %s'):format(LUA_NAME, handler.addonName, name))
+		Spring.Log(LUA_NAME, "warning", ('%s: loaded unsafe %s: %s'):format(LUA_NAME, handler.addonName, name))
 	end
 
 	--// Link the CallIns
@@ -650,7 +650,7 @@ function handler:Remove(addon, _reason)
 	if (addon.Shutdown) then
 		local ok, err = pcall(addon.Shutdown, addon)
 		if not ok then
-			Spring.Log(handler.name, "error", 'In Shutdown(): ' .. tostring(err))
+			Spring.Log(LUA_NAME, "error", 'In Shutdown(): ' .. tostring(err))
 		end
 	end
 
@@ -690,7 +690,7 @@ function handler:LoadOrderList()
 	if VFS.FileExists(ORDER_FILENAME) then
 		local success, rvalue = pcall(VFS.Include, ORDER_FILENAME, {math = {huge = math.huge}})
 		if (not success) then
-			Spring.Log(handler.name, "warning", LUA_NAME .. ': Failed to load: ' .. ORDER_FILENAME .. '  (' .. rvalue .. ')')
+			Spring.Log(LUA_NAME, "warning", LUA_NAME .. ': Failed to load: ' .. ORDER_FILENAME .. '  (' .. rvalue .. ')')
 		elseif (type(rvalue) == "table") then
 			handler.orderList = rvalue
 		end
@@ -717,9 +717,9 @@ function handler:LoadKnownData()
 	if VFS.FileExists(KNOWN_FILENAME) then
 		local success, rvalue = pcall(VFS.Include, KNOWN_FILENAME, {math = {huge = math.huge}})
 		if (not success) then
-			Spring.Log(handler.name, "warning", LUA_NAME .. ': Failed to load: ' .. KNOWN_FILENAME .. '  (' .. rvalue .. ')')
+			Spring.Log(LUA_NAME, "warning", LUA_NAME .. ': Failed to load: ' .. KNOWN_FILENAME .. '  (' .. rvalue .. ')')
 		elseif (type(rvalue) ~= "table") then
-			Spring.Log(handler.name, "warning", LUA_NAME .. ': Failed to load: ' .. KNOWN_FILENAME .. '  (broken data)')
+			Spring.Log(LUA_NAME, "warning", LUA_NAME .. ': Failed to load: ' .. KNOWN_FILENAME .. '  (broken data)')
 		else
 			handler.knownInfos = rvalue
 		end
@@ -799,7 +799,7 @@ end
 function handler:Enable(name)
 	local ki = handler.knownInfos[name]
 	if (not ki) then
-		Spring.Log(handler.name, "warning", LUA_NAME .. "::Enable: Couldn\'t find \"" .. name .. "\".")
+		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::Enable: Couldn\'t find \"" .. name .. "\".")
 		return false
 	end
 	if (ki.active) then
@@ -819,7 +819,7 @@ end
 function handler:Disable(name)
 	local ki = handler.knownInfos[name]
 	if (not ki) then
-		Spring.Log(handler.name, "warning", LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
+		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
 		return false
 	end
 	if (not ki.active)and((order or 0) > 0) then
@@ -835,7 +835,7 @@ function handler:Disable(name)
 		handler:SaveOrderList()
 		return true
 	else
-		Spring.Log(handler.name, "warning", LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
+		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
 	end
 end
 
@@ -843,7 +843,7 @@ end
 function handler:Toggle(name)
 	local ki = handler.knownInfos[name]
 	if (not ki) then
-		Spring.Log(handler.name, "warning", LUA_NAME .. "::Toggle: Couldn\'t find \"" .. name .. "\".")
+		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::Toggle: Couldn\'t find \"" .. name .. "\".")
 		return
 	end
 
@@ -860,7 +860,7 @@ function handler:Toggle(name)
 		end
 	end)
 	if not status then
-		Spring.Log(handler.name, "warning", LUA_NAME .. "::Toggle Error: \"" .. msg .. "\".")
+		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::Toggle Error: \"" .. msg .. "\".")
 		return
 	end
 	return status
