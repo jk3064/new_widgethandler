@@ -185,7 +185,7 @@ local engineCallIns = Script.GetCallInList() --// important!
 --// Create list of all known callins (any others used in addons won't work!)
 local knownCallIns = handler.knownCallIns
 for ciName,ciParams in pairs(engineCallIns) do
-	if (ciParams.controller and (not ciParams.unsynced) and (not Script.GetSynced())) then
+	if (not ciParams.unsynced) and ciParams.controller and (not Script.GetSynced()) then
 		--// skip synced only events when we are in an unsynced enviroment
 	else
 		knownCallIns[ciName] = ciParams
@@ -1013,19 +1013,6 @@ end
 
 handler[s"Remove%{Addon}CallIn"] = handler.RemoveAddonCallIn
 handler[s"Update%{Addon}CallIn"] = handler.UpdateAddonCallIn
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
---  Helper facilities
-
-function handler:ForceLayout()
-	forceLayout = true  --FIXME in main.lua
-end
-
-function handler:ConfigLayoutHandler(data) --FIXME obsolete?
-	ConfigLayoutHandler(data)
-end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------

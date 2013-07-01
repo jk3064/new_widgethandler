@@ -3,6 +3,7 @@ if addon.InGetInfo then
 	return {
 		name      = "UserWidgetBlocker";
 		desc      = "";
+		version   = 1.0;
 		author    = "jK";
 		date      = "2011";
 		license   = "GNU GPL, v2 or later";

@@ -194,7 +194,7 @@ local function NewAddonRev1()
 	addonEnv.handler = h
 	addonEnv[handler.name] = h
 	addonEnv.include = function(f) return include(f, addon) end
-	h.ForceLayout  = handler.ForceLayout
+	h.ForceLayout  = handler.EG.ForceLayout
 	h.RemoveWidget = function() handler:Remove(addon, "auto") end
 	h.GetCommands  = function() return handler.commands end
 	h.GetViewSizes = function() return gl.GetViewSizes() end
@@ -219,7 +219,7 @@ local function NewAddonRev1()
 			Spring.Echo("AddLayoutCommand() can only be used in CommandsChanged()")
 		end
 	end
-	h.ConfigLayoutHandler = handler.ConfigLayoutHandler
+	h.ConfigLayoutHandler = handler.EG.ConfigLayoutHandler
 
 	h.RegisterGlobal   = function(_, name, value) return handler:RegisterGlobal(addon, name, value) end
 	h.DeregisterGlobal = function(_, name)        return handler:DeregisterGlobal(addon, name) end

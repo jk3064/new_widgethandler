@@ -28,9 +28,6 @@ end
 
 VFS.Include(LUAUI_DIRNAME .. 'utils.lua', nil, VFS.DEF_MODE)
 
---// contains a simple LayoutButtons()
-require "layout.lua" --FIXME make it a widget?
-
 --// Lua-based fonthandler (deprecated)
 require "fonts.lua"
 
@@ -46,18 +43,8 @@ Spring.Echo(LUAUI_VERSION .. " (" .. _VERSION .. ")")
 --  Update()
 --
 
-local activePage = 0
-forceLayout = true
-
 --FIXME move to handler or a widget?
 function Update()
-	local currentPage = Spring.GetActivePage()
-	if (forceLayout or (currentPage ~= activePage)) then
-		Spring.ForceLayoutUpdate()  --for the page number indicator
-		forceLayout = false
-	end
-	activePage = currentPage
-
 	fontHandler.Update()
 
 	handler:Update()

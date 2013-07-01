@@ -1,16 +1,38 @@
+-- $Id: ca_layout.lua 4099 2009-03-16 05:18:45Z jk $
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 --
 --  file:    layout.lua
---  brief:   dummy and default LayoutButtons() routines
---  author:  Dave Rodgers
+--  brief:   LayoutButtons() routines heavily based on trepan's default handler
+--  author:  jK (heavily based on code by trepan)
 --
---  Copyright (C) 2007.
+--  Copyright (C) 2008-2013.
 --  Licensed under the terms of the GNU GPL, v2 or later.
 --
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
+if addon.InGetInfo then
+	return {
+		name      = "Layout";
+		desc      = "";
+		version   = 1.2;
+		author    = "jK";
+		date      = "2008-2013";
+		license   = "GNU GPL, v2 or later";
+
+		layer     = math.huge;
+		hidden    = true; -- don't show in the widget selector
+		api       = true; -- load before all others?
+		before    = {};
+		after     = {};
+
+		enabled   = true; -- loaded by default?
+	}
+end
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 Spring.SendCommands("ctrlpanel " .. LUAUI_DIRNAME .. "Assets/ctrlpanel.txt")
 
@@ -33,7 +55,7 @@ local langSuffix = Spring.GetConfigString('Language', 'fr')
 local l10nName = 'L10N/commands_' .. langSuffix .. '.lua'
 local success, translations = pcall(VFS.Include, l10nName)
 if (not success) then
-  translations = nil
+	translations = nil
 end
 
 
@@ -47,20 +69,20 @@ local PageNumTex = "bitmaps/circularthingy.tga"
 
 
 local PageNumCmd = {
-  name    = "1",
-  texture = PageNumTex,
-  tooltip = "Active Page Number\n(click to toggle buildiconsfirst)",
-  actions = { "buildiconsfirst", "firstmenu" }
+	name    = "1",
+	texture = PageNumTex,
+	tooltip = "Active Page Number\n(click to toggle buildiconsfirst)",
+	actions = { "buildiconsfirst", "firstmenu" }
 }
 
 
 --------------------------------------------------------------------------------
 
 local function DummyHandler(xIcons, yIcons, cmdCount, commands)
-  handler.commands   = commands
-  handler.commands.n = cmdCount
-  handler:CommandsChanged()
-  return "", xIcons, yIcons, {}, {}, {}, {}, {}, {}, {}, {}
+	handler.commands   = commands
+	handler.commands.n = cmdCount
+	handler:CommandsChanged()
+	return "", xIcons, yIcons, {}, {}, {}, {}, {}, {}, {}, {}
 end
 
 
@@ -199,24 +221,39 @@ end
 
 --------------------------------------------------------------------------------
 
-function ConfigLayoutHandler(data)
-  if (type(data) == 'function') then
-    LayoutButtons = data
-  elseif (type(data) == 'boolean') then
-    if (data) then
-      LayoutButtons = DefaultHandler
-    else
-      LayoutButtons = DummyHandler
-    end
-  elseif (data == nil) then
-    LayoutButtons = nil
-  end
+local activePage = 0
+local forceLayout = false
+local LayoutButtons
 
-  forceLayout = true
+function ConfigLayoutHandler(data)
+	if (type(data) == 'function') then
+		LayoutButtons = data
+	elseif (type(data) == 'boolean') then
+		if (data) then
+			LayoutButtons = DefaultHandler
+		else
+			LayoutButtons = DummyHandler
+		end
+	elseif (data == nil) then
+		LayoutButtons = nil
+	end
+
+	RegisterGlobal("LayoutButtons", LayoutButtons)
+	forceLayout = true
 end
 
 
-LayoutButtons = DefaultHandler
+function addon.Update()
+	local currentPage = Spring.GetActivePage()
+	if (forceLayout) or (currentPage ~= activePage) then
+		Spring.ForceLayoutUpdate()  --for the page number indicator
+		forceLayout = false
+	end
+	activePage = currentPage
+end
 
+ConfigLayoutHandler(DefaultHandler)
+handler.EG.ConfigLayoutHandler = ConfigLayoutHandler
+handler.EG.ForceLayout = function() forceLayout = true end
 
 --------------------------------------------------------------------------------

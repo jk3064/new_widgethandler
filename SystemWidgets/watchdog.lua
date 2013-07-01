@@ -3,6 +3,7 @@ if addon.InGetInfo then
 	return {
 		name      = "Watchdog";
 		desc      = "";
+		version   = 0.1;
 		author    = "jK";
 		date      = "2013";
 		license   = "GNU GPL, v2 or later";
@@ -10,7 +11,6 @@ if addon.InGetInfo then
 		layer     = math.huge;
 		hidden    = not true; -- don't show in the widget selector
 		api       = true; -- load before all others?
-		before    = {"all"}; -- make it loaded before ALL other widgets (-> it must be the first widget that gets loaded!)
 
 		enabled   = not true; -- loaded by default?
 	}
