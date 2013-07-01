@@ -91,7 +91,7 @@ function include(filename, envTable, VFSMODE)
 		return require("colors.lua") --// tail call so we don't need to bother with stacklevels
 	end
 	if filename == "keysym.h.lua" then
-		Spring.Echo("Headers files aren't supported anymore use \"require\" instead!")
+		Spring.Log(LUA_NAME, "warning", "Headers files aren't supported anymore use \"require\" instead!")
 		return require("keysym.lua") --// tail call so we don't need to bother with stacklevels
 	end
 	if filename:find(".h.", 1, true) then

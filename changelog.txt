@@ -8,8 +8,7 @@ changelog
  * new AddonLoaded callin
  * new AddonRemoved callin
  * new BlockAddon callin
- * auto linking of engine supported callins
+ * auto linking of _all_ engine supported callins
  * new handler:AddNewCallIn() to add new custom callins at runtime
- * new handler:SearchForNewAddons()
+ * new handler:SearchForNew()
  * safer removing of addons during callins
- 

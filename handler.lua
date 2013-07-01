@@ -11,15 +11,13 @@
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 --FIXME name widgets & gadgets AddOns internally
---FIXME rev2 & handler:Remove()
---FIXME finish BlockAddon + add BlockWidget syn.
---FIXME cleanup
 
 --// Note: all here included modules/utilities are auto exposed to the addons, too!
 require "setupdefs.lua"
 require "savetable.lua"
 require "keysym.lua"
 require "actions.lua"
+
 
 --// make a copy of the engine exported enviroment (we use this later for the addons!)
 local EG = {}
@@ -29,22 +27,9 @@ end
 
 --// don't auto expose the following the addons
 require "list.lua"
+require "table.lua"
+require "VFS_GetFileChecksum.lua"
 
---[[
-do
-	local i=0
-	local function hook(event)
-		i = i + 1
-		if ((i % (10^7)) < 1) then
-			i = 0
-			Spring.Echo(Spring.GetGameFrame(), event, debug.getinfo(2).name)
-			Spring.Echo(debug.traceback())
-		end
-	end
-
-	debug.sethook(hook,"r",10^100)
-end
---]]
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -59,74 +44,6 @@ local pairs  = pairs
 local ipairs = ipairs
 local emptyTable = {}
 
-if (not VFS.GetFileChecksum) then
-	function VFS.GetFileChecksum(file, _VFSMODE)
-		local data = VFS.LoadFile(file, _VFSMODE)
-		if (data) then
-			local datalen     = data:len()/4 --// 'x/4' cause we use UnpackU32
-			local striplength = 2 * 1024     --// 2kB
-
-			if (striplength >= datalen) then
-				local bytes = VFS.UnpackU32(data,nil,datalen)
-				local checksum = math.bit_xor(0,unpack(bytes))
-				return checksum
-			end
-
-			--// stack is limited, so split up the data
-			local start = 1
-			local crcs = {}
-			repeat
-				local strip = data:sub(start,start+striplength)
-				local bytes = VFS.UnpackU32(strip,nil,strip:len()/4)
-				local checksum = math.bit_xor(0,unpack(bytes))
-				crcs[#crcs+1] = checksum
-				start = start + striplength
-			until (start >= datalen)
-
-			local checksum = math.bit_xor(0,unpack(crcs))
-			return checksum
-		end
-	end
-end
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
--- Table functions
-
-local function tcopy(t1, t2)
-	--FIXME recursive?
-	for i,v in pairs(t2) do
-		t1[i] = v
-	end
-end
-
-local function tappend(t1, t2)
-	for i=1,#t2 do
-		t1[#t1+1] = t2[i]
-	end
-end
-
-local function tfind(t, item)
-	if (not t)or(item == nil) then return false end
-	for i=1,#t do
-		if t[i] == item then
-			return true
-		end
-	end
-	return false
-end
-
-local function tprinttable(t, columns)
-	local formatstr = "  " .. string.rep("%-25s, ", columns)
-	for i=1, #t, columns do
-		if (i+columns > #t) then
-			formatstr = "  " .. string.rep("%-25s, ", #t - i - 1) .. "%-25s"
-		end
-		local s = formatstr:format(select(i,unpack(t)))
-		spEcho("  " .. s)
-	end
-end
-
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -135,7 +52,6 @@ end
 local function SortAddonsFunc(ki1, ki2)
 	local one_before_two = tfind(ki1.before, ki2.name) or tfind(ki2.after, ki1.name)
 	local two_before_one = tfind(ki2.before, ki1.name) or tfind(ki1.after, ki2.name)
-
 
 	local one_before_all = tfind(ki1.before, "all")
 	local two_before_all = tfind(ki2.before, "all")
@@ -177,12 +93,12 @@ handler = {
 	addonName = "widget";
 
 	verbose = true;
-	autoUserWidgets = true; --// if false it auto disables widgets from rawFS (FIXME do via BlockAddon)
+	autoUserWidgets = false; --FIXME move to widget
 
 	addons       = CreateList("addons", SortAddonsFunc); --// all loaded addons
 	configData   = {};
 	orderList    = {};
-	knownWidgets = {}; --// cached Load...Info() results of all known/available Addons (even unloaded ones)
+	knownInfos = {}; --// cached Load...Info() results of all known/available Addons (even unloaded ones)
 	knownChanged = 0;
 
 	commands          = {}; --FIXME where used?
@@ -210,18 +126,38 @@ handler[handler.addonName .. "s"] = handler.addons  --// handler.widgets == hand
 --// backward compability, so you can still call handler:UnitCreated() etc.
 setmetatable(handler, {
 	__index = function(self, key)
+		if (key == "knownWidgets") or (key == "knownAddons") then
+			return self.knownInfos
+		end
+
 		local firstChar = key:sub(1,1)
 		if (firstChar == firstChar:upper()) then
 			return function(_, ...)
 				if (self.callInHookFuncs[key]) then
 					return self.callInHookFuncs[key](...)
 				else
-					error(LUA_NAME .. ": No CallIn-Handler for \"" .. key .. "\"")
+					error(LUA_NAME .. ": No CallIn-Handler for \"" .. key .. "\"", 2)
 				end
 			end
 		end
+	end;
+
+--[[
+	__newindex = function(self, key, value)
+		if (key == "knownWidgets") or (key == "knownAddons") then
+			error("not allowed", 2)
+		end
+
+		if type(value) == "function" then
+			if not self[key] then
+				error("overriding function not allowed", 2)
+			end
+		end
+
+		rawset(self, key, value) --FIXME rawset is not available in LuaRules!!!
 	end
-end})
+--]]
+})
 
 
 --------------------------------------------------------------------------------
@@ -264,17 +200,18 @@ function handler:AddNewCallIn(ciName, unsynced, controller)
 	end
 	knownCallIns[ciName] = {unsynced = unsynced, controller = controller, custom = true}
 	for _,addon in handler.addons:iter() do
-		handler:UpdateWidgetCallIn(ciName, addon)
+		handler:UpdateAddonCallIn(ciName, addon)
 	end
 end
 
 
+local function s(str) return str:gsub("%%{addon}",handler.addonName):gsub("%%{Addon}",handler.AddonName) end
+
 --// Standard Custom CallIns
+handler:AddNewCallIn("BlockAddon", true, true)        --// (addon_name, knownInfo) -> bool block
 handler:AddNewCallIn("Initialize", true, false)       --// ()
 handler:AddNewCallIn("AddonAdded", true, false)       --// (addon_name)
-handler:AddNewCallIn("WidgetAdded", true, false)      --// ''
 handler:AddNewCallIn("AddonRemoved", true, false)     --// (addon_name, reason) -- reason can either be "crash" | "user" | "auto" | "dependency"
-handler:AddNewCallIn("WidgetRemoved", true, false)    --// ''
 handler:AddNewCallIn("SelectionChanged", true, true)  --// (selection = {unitID1, unitID1}) -> [newSelection]
 handler:AddNewCallIn("CommandsChanged", true, false)  --// ()
 handler:AddNewCallIn("TextCommand", true, false)      --// ("command") -- renamed ConfigureLayout
@@ -308,12 +245,13 @@ end
 
 function handler:Initialize()
 	--// Create the "LuaUI/Config" directory
-	Spring.CreateDir(LUAUI_DIRNAME .. 'Config')
+	Spring.CreateDir(LUAUI_DIRNAME .. 'Config') --FIXME LuaRules!
 	handler:UpdateAddonList()
 	handler.initialized = true
 end
 
 
+--FIXME rename (it updates list AND loads them)
 function handler:UpdateAddonList()
 	handler:LoadOrderList()
 	handler:LoadConfigData()
@@ -329,12 +267,12 @@ function handler:UpdateAddonList()
 	local loadList = {}
 	for name,order in pairs(handler.orderList) do
 		if (order > 0) then
-			local ki = handler.knownWidgets[name]
+			local ki = handler.knownInfos[name]
 			if ki then
 				loadList[#loadList+1] = name
 			else
-				if (handler.verbose) then spEcho(("Couldn't find a %s named \"%s\""):format(handler.addonName, name)) end
-				handler.knownWidgets[name] = nil
+				if (handler.verbose) then Spring.Log(handler.name, "warning", ("Couldn't find a %s named \"%s\""):format(handler.addonName, name)) end
+				handler.knownInfos[name] = nil
 				handler.orderList[name] = nil
 			end
 		end
@@ -342,8 +280,8 @@ function handler:UpdateAddonList()
 
 	--// Sort them
 	local SortFunc = function(n1, n2)
-		local ki1 = handler.knownWidgets[n1]
-		local ki2 = handler.knownWidgets[n2]
+		local ki1 = handler.knownInfos[n1]
+		local ki2 = handler.knownInfos[n2]
 		--assert(wi1 and wi2)
 		return SortAddonsFunc(ki1 or emptyTable, ki2 or emptyTable)
 	end
@@ -360,7 +298,7 @@ function handler:UpdateAddonList()
 
 	--// Load them
 	for _,name in ipairs(loadList) do
-		local ki = handler.knownWidgets[name]
+		local ki = handler.knownInfos[name]
 		handler:Load(ki.filepath)
 	end
 
@@ -379,7 +317,7 @@ handler[("Update%sList"):format(handler.AddonName)] = handler.UpdateAddonList
 
 local function GetAllAddonFiles()
 	local addonFiles = {}
-	for i,dir in pairs(WIDGET_DIRS) do
+	for i,dir in pairs(ADDON_DIRS) do
 		spEcho(LUA_NAME .. " Scanning: " .. dir)
 		local files = VFS.DirList(dir, "*.lua", VFSMODE)
 		if (files) then
@@ -391,7 +329,7 @@ end
 
 
 function handler:FindNameByPath(path)
-	for _,ki in pairs(handler.knownWidgets) do
+	for _,ki in pairs(handler.knownInfos) do
 		if (ki.filepath == path) then
 			return ki.name
 		end
@@ -401,14 +339,14 @@ end
 
 function handler:SearchForNew(quiet)
 	if (quiet) then spEcho = function() end end
-	spEcho(LUA_NAME .. ": Searching for new Widgets")
+	spEcho(LUA_NAME .. ": Searching for new " .. handler.AddonName .. "s")
 
 	local addonFiles = GetAllAddonFiles()
 	for _,fpath in ipairs(addonFiles) do
 		local name = handler:FindNameByPath(fpath)
-		local ki = name and handler.knownWidgets[name]
+		local ki = name and handler.knownInfos[name]
 
-		if ki and ((not handler.initialized) or ((ki._rev >= 2) and (not ki.active))) then --// don't override the knownWidgets[name] of _loaded_ addons!
+		if ki and ((not handler.initialized) or ((ki._rev >= 2) and (not ki.active))) then --// don't override the knownInfos[name] of _loaded_ addons!
 			if ki and ki.checksum then --// rev2 addons don't save a checksum!
 				local checksum = VFS.GetFileChecksum(fpath, VFSMODE)
 				if (checksum and (ki.checksum ~= checksum)) then
@@ -420,10 +358,13 @@ function handler:SearchForNew(quiet)
 		end
 
 		if (not ki) then
-			if (handler.verbose) then spEcho(("%s: Found new %s \"%s\""):format(LUA_NAME, handler.addonName, fpath)) end
-			if name then handler.knownWidgets[name] = nil end
+			ki = handler:LoadAddonInfo(fpath)
 
-			handler:LoadWidgetInfo(fpath)
+			if (ki) then
+				if (handler.verbose and ki._rev >= 2) then
+					spEcho(("%s: Found new %s \"%s\""):format(LUA_NAME, handler.addonName, ki.name))
+				end
+			end
 		end
 	end
 
@@ -433,7 +374,7 @@ end
 
 
 function handler:DetectEnabledAddons()
-	for i,ki in pairs(handler.knownWidgets) do
+	for i,ki in pairs(handler.knownInfos) do
 		if (not ki.active) then
 			--// default enabled?
 			local defEnabled = ki.enabled
@@ -457,435 +398,81 @@ function handler:DetectEnabledAddons()
 	end
 end
 
-
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
--- Addon Crash Handlers
 
-local SafeCallAddon
-local SafeWrapFunc
-
-do
-	--// small helper
-	local isDrawCallIn = setmetatable({}, {__index = function(self,ciName)
-		self[ciName] = ((ciName:sub(1, 4) == 'Draw')or(ciName:sub(1, 9) == 'TweakDraw'));
-		return self[ciName];
-	end})
-
-
-	local function HandleError(addon, funcName, status, ...)
-		if (status) then
-			--// no error
-			return ...
-		end
-
-		handler:Remove(addon, "crash")
-
-		local name = addon._info.name
-		local err  = select(1,...)
-		spEcho(('Error in %s(): %s'):format(funcName, tostring(err)))
-		spEcho(('Removed %s: %s'):format(handler.addonName, handler:GetFancyString(name)))
-		return nil
-	end
-
-
-	local function HandleErrorGL(addon, funcName, status, ...)
-		glPopAttrib()
-		--gl.PushMatrix()
-		return HandleError(addon, funcName, status, ...)
-	end
-
-
-	local function SafeWrapFuncNoGL(addon, func, funcName)
-		return function(...)
-			return HandleError(addon, funcName, pcall(func, ...))
-		end
-	end
-
-
-	local function SafeWrapFuncGL(addon, func, funcName)
-		return function(...)
-			glPushAttrib()
-			--gl.PushMatrix()
-			return HandleErrorGL(addon, funcName, pcall(func, ...))
-		end
-	end
-
-
-	SafeWrapFunc = function(addon, func, funcName)
-		if (SAFEWRAP <= 0) then
-			return func
-		elseif (SAFEWRAP == 1) then
-			if (addon._info.unsafe) then
-				return func
-			end
-		end
-
-		if (not SAFEDRAW) then
-			return SafeWrapFuncNoGL(addon, func, funcName)
-		else
-			if (isDrawCallIn[funcName]) then
-				return SafeWrapFuncGL(addon, func, funcName)
-			else
-				return SafeWrapFuncNoGL(addon, func, funcName)
-			end
-		end
-	end
-
-
-	SafeCallAddon = function(addon, ciName, ...)
-		local f = addon[ciName]
-		if (not f) then
-			return
-		end
-
-		local ki = addon._info
-		if (SAFEWRAP <= 0)or
-			((SAFEWRAP == 1)and(ki and ki.unsafe))
-		then
-			return f(addon, ...)
-		end
-
-		if (SAFEDRAW and isDrawCallIn[ciName]) then
-			glPushAttrib()
-			return HandleErrorGL(addon, ciName, pcall(f, addon, ...))
-		else
-			return HandleError(addon, ciName, pcall(f, addon, ...))
-		end
-	end
-end
+require "crashHandler.lua"
 
 --// so addons can use it, too
 handler[("SafeCall%s"):format(handler.AddonName)] = SafeCallAddon
-handler.SafeCallAddon  = SafeCallAddon
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
--- Addon Info
-
-do
-	local function GetDefaultKnownInfo(filepath, basename)
-		return {
-			filepath = filepath,
-			basename = basename,
-			name     = basename,
-			version  = "0.1",
-			layer    = 0,
-			desc     = "",
-			author   = "",
-			license  = "",
-			enabled  = false,
-			api      = false,
-			handler  = false,
-			before   = {},
-			after    = {},
-			depend   = {},
-			_rev     = 0,
-		}
-	end
-
-
-	local function LoadAddonRev2Info(filepath, _VFSMODE)
-		local basename = Basename(filepath)
-
-		local ki = GetDefaultKnownInfo(filepath, basename)
-		ki._rev = 2
-
-		_VFSMODE = _VFSMODE or VFSMODE
-		local loadEnv = {addon = {InGetInfo = true}, math = math}
-
-		local success, rvalue = pcall(VFS.Include, filepath, loadEnv, _VFSMODE)
-			if not success then
-				return "Failed to load: " .. basename .. "  (" .. rvalue .. ")"
-			end
-			if rvalue == false then
-				return true --// addon asked for a silent death
-			end
-			if type(rvalue) ~= "table" then
-				return "Wrong return value: " .. basename
-			end
-
-		tcopy(ki, rvalue)
-		return false, ki
-	end
-
-
-	local function LoadAddonRev1Info(addon, filepath)
-		local basename = Basename(filepath)
-
-		local ki = GetDefaultKnownInfo(filepath, basename)
-		ki._rev = 1
-
-		if (addon.GetInfo) then
-			local rvalue = SafeCallAddon(addon, "GetInfo")
-			if type(rvalue) ~= "table" then
-				return "Failed to call GetInfo() in: " .. basename
-			else
-				tcopy(ki, rvalue)
-			end
-		else
-			return "Missing GetInfo() in: " .. basename
-		end
-
-		return false, ki
-	end
-
-
-	local function ValidateKnownInfo(ki, _VFSMODE)
-		if not ki then
-			return "No KnownInfo given"
-		end
-
-		--// load/create data
-		local knownInfo = handler.knownWidgets[ki.name]
-		if (not knowInfo) then
-			knownInfo = {}
-			handler.knownWidgets[ki.name] = knownInfo
-		end
-
-		--// check for duplicated name
-		if (knownInfo.filepath)and(knownInfo.filepath ~= ki.filepath) then
-			return "Failed to load: " .. ki.basename .. " (duplicate name)"
-		end
-
-		--// create/update knownInfo table
-		tcopy(knownInfo, ki) --// update table
-	end
-
-
-	function handler:LoadWidgetInfo(filepath, _VFSMODE)
-		--FIXME check checksum for rev1 addons!
-		
-		--// update so addons can see if something got changed
-		handler.knownChanged = handler.knownChanged + 1
-
-		--// clear old knownInfo
-		local name = handler:FindNameByPath(filepath)
-		if (name) then
-			handler.knownWidgets[name] = nil --FIXME addon._info and handler.knownWidgets[name] point should point to the same table?
-		end
-
-		local err, ki = LoadAddonRev2Info(filepath, _VFSMODE)
-		if (err == true) then
-			return nil --// addon asked for a silent death
-		end
-		if (not ki) then
-			--// try to load it as rev1 addon
-			local addon = handler:ParseAddonRev1(filepath, _VFSMODE)
-			if (addon) then
-				err, ki = LoadAddonRev1Info(addon, filepath)
-			end
-		end
-
-		--// fail
-		if (not ki) then
-			--spEcho(err)
-			return nil
-		end
-
-		--// create checksum for rev1 addons
-		if (ki._rev <= 1) then
-			ki.checksum = VFS.GetFileChecksum(ki.filepath, _VFSMODE or VFSMODE)
-		end
-
-		--// check if it's loaded from a zip (game or map)
-		ki.fromZip = true
-		if (_VFSMODE == VFS.ZIP_FIRST) then
-			ki.fromZip = VFS.FileExists(ki.filepath,VFS.ZIP_ONLY)
-		else
-			ki.fromZip = not VFS.FileExists(ki.filepath,VFS.RAW_ONLY)
-		end
-
-		--// causality
-		tappend(ki.after, ki.depend)
-
-		--// validate
-		err = ValidateKnownInfo(ki, _VFSMODE)
-		if (err) then
-			spEcho(err)
-			return nil
-		end
-
-		return ki
-	end
-end
-
+handler.SafeCallAddon = SafeCallAddon
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
--- Addon Parsing
+-- Addon Creation
 
-local function ValidateAddon(addon)
-	if (addon.GetTooltip and not addon.IsAbove) then
-		return ("%s has GetTooltip() but not IsAbove()"):format(handler.AddonName)
-	end
-	return nil
-end
+require "addonRevisions.lua"
 
+function handler:LoadAddonInfo(filepath, _VFSMODE)
+	--// update so addons can see if something got changed
+	handler.knownChanged = handler.knownChanged + 1
 
-function handler:NewAddonRev2()
-	local addonEnv = {}
-	local addon = addonEnv
-	addonEnv.widget = addon
-	addonEnv.addon  = addon  --// makes `function Initizalize` & `function addon.Initialize` point to the same data
-
-	--// copy the engine enviroment to the addon
-		tcopy(addonEnv, EG)
-
-	--// the shared table
-		addonEnv.SG = handler.SG
-
-	--// addon related methods
-		addonEnv.addon = {
-			Remove = handler.Remove,
-			IsMouseOwner = function() return (handler.mouseOwner == addon) end,
-			DisownMouse  = function()
-				if (handler.mouseOwner == addon) then
-					handler.mouseOwner = nil
-				end
-			end,
-			UpdateCallIn = function(name) handler:UpdateWidgetCallIn(name, addon) end,
-			RemoveCallIn = function(name) handler:RemoveWidgetCallIn(name, addon) end,
-			AddAction    = function(cmd, func, data, types) return actionHandler.AddWidgetAction(addon, cmd, func, data, types) end,
-			RemoveAction = function(cmd, types)             return actionHandler.RemoveWidgetAction(addon, cmd, types) end,
---[[
-			AddLayoutCommand = function(_, cmd)
-				if (handler.inCommandsChanged) then
-					table.insert(handler.customCommands, cmd)
-				else
-					spEcho("AddLayoutCommand() can only be used in CommandsChanged()")
-				end
-			end,
-			GetCommands  = function() return handler.commands end,
---]]
-			RegisterGlobal   = function(name, value) return handler:RegisterGlobal(addon, name, value) end,
-			DeregisterGlobal = function(name)        return handler:DeregisterGlobal(addon, name) end,
-			SetGlobal        = function(name, value) return handler:SetGlobal(addon, name, value) end,
-		}
-
-	--// insert handler
-		addonEnv.handler = handler
-		addonEnv[handler.name] = handler
-	return addon
-end
-
-
-function handler:NewAddonRev1()
-	local addonEnv = {}
-	local addon = addonEnv --// easy self referencing
-	addonEnv.addon  = addon
-	addonEnv.widget = addon
-
-	--// copy the engine enviroment to the addon
-	tcopy(addonEnv, EG)
-	
-	--// the shared table
-	addonEnv.SG = handler.SG
-	addonEnv.WG = handler.SG
-
-	--// wrapped calls (closures)
-	local h = {}
-	addonEnv.handler = h
-	addonEnv[handler.name] = h
-	addonEnv.include = function(f) return include(f, addon) end
-	h.ForceLayout  = handler.ForceLayout
-	h.RemoveWidget = function() handler:Remove(addon, "auto") end
-	h.GetCommands  = function() return handler.commands end
-	h.GetViewSizes = handler.GetViewSizes
-	h.GetHourTimer = handler.GetHourTimer
-	h.IsMouseOwner = function() return (handler.mouseOwner == addon) end
-	h.DisownMouse  = function()
-		if (handler.mouseOwner == addon) then
-			handler.mouseOwner = nil
-		end
+	--// clear old knownInfo
+	local name = handler:FindNameByPath(filepath)
+	if (name) then
+		handler.knownInfos[name] = nil --FIXME addon._info and handler.knownInfos[name] point should point to the same table?
 	end
 
-	h.UpdateCallIn = function(_, name) handler:UpdateWidgetCallIn(name, addon) end
-	h.RemoveCallIn = function(_, name) handler:RemoveWidgetCallIn(name, addon) end
-
-	h.AddAction    = function(_, cmd, func, data, types) return actionHandler.AddWidgetAction(addon, cmd, func, data, types) end
-	h.RemoveAction = function(_, cmd, types)             return actionHandler.RemoveWidgetAction(addon, cmd, types) end
-
-	h.AddLayoutCommand = function(_, cmd)
-		if (handler.inCommandsChanged) then
-			table.insert(handler.customCommands, cmd)
-		else
-			spEcho("AddLayoutCommand() can only be used in CommandsChanged()")
-		end
-	end
-	h.ConfigLayoutHandler = handler.ConfigLayoutHandler
-
-	h.RegisterGlobal   = function(_, name, value) return handler:RegisterGlobal(addon, name, value) end
-	h.DeregisterGlobal = function(_, name)        return handler:DeregisterGlobal(addon, name) end
-	h.SetGlobal        = function(_, name, value) return handler:SetGlobal(addon, name, value) end
-
-	return addonEnv
-end
-
-
-function handler:ParseAddonRev2(filepath, _VFSMODE)
-	_VFSMODE = _VFSMODE or VFSMODE
-	local basename = Basename(filepath)
-
-	--// load the code
-	local addonEnv = handler:NewWidgetRev2()
-	local success, err = pcall(VFS.Include, filepath, addonEnv, _VFSMODE)
-	if (not success) then
-		spEcho('Failed to load: ' .. basename .. '  (' .. err .. ')')
-		return nil
-	end
-	if (err == false) then
+	local err, ki = AddonRevs.LoadAddonInfoRev2(filepath, _VFSMODE)
+	if (err == true) then
 		return nil --// addon asked for a silent death
 	end
+	if (not ki) then
+		--// try to load it as rev1 addon
+		err, ki = AddonRevs.LoadAddonInfoRev1(filepath, _VFSMODE)
+	end
 
-	local addon = addonEnv.addon
+	--// fail
+	if (not ki) then
+		if (err) then Spring.Log(handler.name, "warning", err) end
+		return nil
+	end
 
-	--// Validate Callins
-	err = ValidateAddon(addon)
+	--// create checksum for rev1 addons
+	if (ki._rev <= 1) then
+		ki.checksum = VFS.GetFileChecksum(ki.filepath, _VFSMODE or VFSMODE)
+	end
+
+	--// check if it's loaded from a zip (game or map)
+	ki.fromZip = true
+	if (_VFSMODE == VFS.ZIP_FIRST) then
+		ki.fromZip = VFS.FileExists(ki.filepath,VFS.ZIP_ONLY)
+	else
+		ki.fromZip = not VFS.FileExists(ki.filepath,VFS.RAW_ONLY)
+	end
+
+	--// causality
+	tappend(ki.after, ki.depend)
+
+	--// validate
+	err = AddonRevs.ValidateKnownInfo(ki, _VFSMODE)
 	if (err) then
-		spEcho('Failed to load: ' .. basename .. '  (' .. err .. ')')
+		Spring.Log(handler.name, "warning", err)
 		return nil
 	end
 
-	return addon
-end
-
-
-function handler:ParseAddonRev1(filepath, _VFSMODE)
-	_VFSMODE = _VFSMODE or VFSMODE
-	local basename = Basename(filepath)
-
-	--// load the code
-	local addonEnv = handler:NewAddonRev1()
-	local success, err = pcall(VFS.Include, filepath, addonEnv, _VFSMODE)
-	if (not success) then
-		spEcho('Failed to load: ' .. basename .. '  (' .. err .. ')')
-		return nil
-	end
-	if (err == false) then
-		return nil --// addon asked for a silent death
+	--// Blocked Addon?
+	if handler:BlockAddon(ki.name, ki) then --FIXME make ki write protected!!!
+		ki.blocked = true
 	end
 
-	local addon = addonEnv.widget
-
-	--// Validate Callins
-	err = ValidateAddon(addon)
-	if (err) then
-		spEcho('Failed to load: ' .. basename .. '  (' .. err .. ')')
-		return nil
-	end
-
-	return addon
+	tmergein(handler.knownInfos[ki.name], ki)
+	return handler.knownInfos[ki.name]
 end
 
 
 function handler:ParseAddon(ki, filepath, _VFSMODE)
-	if ((ki._rev or 0) >= 2) then
-		return handler:ParseAddonRev2(filepath, _VFSMODE)
-	else
-		return handler:ParseAddonRev1(filepath, _VFSMODE)
-	end
+	return AddonRevs.ParseAddon((ki._rev or 0), filepath, _VFSMODE)
 end
 
 
@@ -894,7 +481,7 @@ end
 
 function handler:GetFancyString(name, str)
 	if not str then str = name end
-	local ki = handler.knownWidgets[name]
+	local ki = handler.knownInfos[name]
 	if ki then
 		if ki.fromZip then
 			return ("<%s>"):format(str)
@@ -915,7 +502,7 @@ local function InsertAddonCallIn(ciName, addon)
 	if (knownCallIns[ciName]) then
 		local f = addon[ciName]
 
-		--// use callInName__ to respect when a addon dislinked the function via :RemoveWidgetCallIn (and there is is still a func named addon[callInName])
+		--// use callInName__ to respect when a addon dislinked the function via :RemoveAddonCallIn (and there is is still a func named addon[callInName])
 		addon[ciName .. "__"] = f --// non closure!
 
 		if ((addon._info._rev or 0) <= 1) then
@@ -927,7 +514,7 @@ local function InsertAddonCallIn(ciName, addon)
 		local swf = SafeWrapFunc(addon, f, ciName)
 		return handler.callInLists[ciName]:Insert(addon, swf)
 	elseif (handler.verbose) then
-		spEcho(LUA_NAME .. "::InsertWidgetCallIn: Unknown CallIn \"" .. ciName.. "\"")
+		Spring.Log(handler.name, "warning", LUA_NAME .. "::InsertAddonCallIn: Unknown CallIn \"" .. ciName.. "\"")
 	end
 	return false
 end
@@ -938,7 +525,7 @@ local function RemoveAddonCallIn(ciName, addon)
 		addon[ciName .. "__"] = nil
 		return handler.callInLists[ciName]:Remove(addon)
 	elseif (handler.verbose) then
-		spEcho(LUA_NAME .. "::RemoveWidgetCallIn: Unknown CallIn \"" .. ciName.. "\"")
+		Spring.Log(handler.name, "warning", LUA_NAME .. "::RemoveAddonCallIn: Unknown CallIn \"" .. ciName.. "\"")
 	end
 	return false
 end
@@ -946,7 +533,7 @@ end
 
 local function RemoveAddonCallIns(addon)
 	for ciName,ciList in pairs(handler.callInLists) do
-		ciList:Remove(addon)
+		handler:RemoveAddonCallIn(ciName, addon)
 	end
 end
 
@@ -955,19 +542,27 @@ end
 --------------------------------------------------------------------------------
 
 function handler:Load(filepath, _VFSMODE)
-	--FIXME handler:AllowWidgetLoading(filepath)
-
 	--// Load KnownInfo
-	local ki = handler:LoadWidgetInfo(filepath, _VFSMODE)
+	local ki = handler:LoadAddonInfo(filepath, _VFSMODE)
 	if (not ki) then
+		return
+	end
+
+	if (ki.blocked) then
+		--// blocked
+		Spring.Log(handler.name, "warning", ("%s: blocked %s \"%s\"."):format(LUA_NAME, handler.AddonName, ki.name))
+		return
+	elseif (ki.active) then
+		--// Already loaded?
+		Spring.Log(handler.name, "warning", ("%s: %s \"%s\" already loaded."):format(LUA_NAME, handler.AddonName, ki.name))
 		return
 	end
 
 	--// check dependencies
 	for i=1,#ki.depend do
 		local dep = ki.depend[i]
-		if not (handler.knownWidgets[dep] or {}).active then
-			spEcho(("%s: Missing/Unloaded dependency \"%s\" for \"%s\"."):format(LUA_NAME, dep, ki.name))
+		if not (handler.knownInfos[dep] or {}).active then
+			Spring.Log(handler.name, "warning", ("%s: Missing/Unloaded dependency \"%s\" for \"%s\"."):format(LUA_NAME, dep, ki.name))
 			return
 		end
 	end
@@ -981,7 +576,7 @@ function handler:Load(filepath, _VFSMODE)
 	--// Link KnownInfo with addon
 	local mt = {
 		__index = ki,
-		__newindex = function() error("_info tables are read-only") end,
+		__newindex = function() error("_info tables are read-only",2) end,
 		__metatable = "protected"
 	}
 	addon._info = setmetatable({}, mt)
@@ -992,11 +587,8 @@ function handler:Load(filepath, _VFSMODE)
 	local basename = addon._info.basename
 
 	if (handler.verbose or handler.initialized) then
-		local loadingstr = "Loading widget: " .. ((handler.initialized and "") or "    ") --// the concat is done to align it with the api string! (the one beneath)
-		if (ki.api) then
-			loadingstr = "Loading API widget: "
-		end
-		spEcho(("%s %-21s  %s"):format(loadingstr, name, handler:GetFancyString(name,basename)))
+		local loadingstr = ((ki.api and "Loading API %s: ") or "Loading %s: "):format(handler.addonName)
+		spEcho(("%-20s %-21s  %s"):format(loadingstr, name, handler:GetFancyString(name,basename)))
 	end
 
 	--// Add to handler
@@ -1005,7 +597,7 @@ function handler:Load(filepath, _VFSMODE)
 
 	--// Unsafe addon (don't use pcall for callins)
 	if (SAFEWRAP == 1)and(addon._info.unsafe) then
-		spEcho(('%s: loaded unsafe %s: %s'):format(LUA_NAME, handler.addonName, name))
+		Spring.Log(handler.name, "warning", ('%s: loaded unsafe %s: %s'):format(LUA_NAME, handler.addonName, name))
 	end
 
 	--// Link the CallIns
@@ -1034,7 +626,6 @@ function handler:Load(filepath, _VFSMODE)
 	end
 
 	--// inform other addons
-	handler:WidgetAdded(name)
 	handler:AddonAdded(name)
 end
 
@@ -1045,30 +636,29 @@ function handler:Remove(addon, _reason)
 	end
 
 	if (type(addon) ~= "table")or(type(addon._info) ~= "table")or(not addon._info.name) then
-		error "Wrong input to handler:Remove()"
+		error("Wrong input to handler:Remove()", 2)
 	end
 
 	--// Try clean exit
 	local name = addon._info.name
-	local ki = handler.knownWidgets[name]
+	local ki = handler.knownInfos[name]
 	if (not ki.active) then
 		return
 	end
 	ki.active = false
-	handler:SaveWidgetConfigData(addon)
+	handler:SaveAddonConfigData(addon)
 	if (addon.Shutdown) then
 		local ok, err = pcall(addon.Shutdown, addon)
 		if not ok then
-			spEcho('Error in Shutdown(): ' .. tostring(err))
+			Spring.Log(handler.name, "error", 'In Shutdown(): ' .. tostring(err))
 		end
 	end
 
 	--// Remove any links in the handler
-	handler:RemoveWidgetGlobals(addon)
+	handler:RemoveAddonGlobals(addon)
 	actionHandler.RemoveWidgetActions(addon)
 	handler.addons:Remove(addon)
 	RemoveAddonCallIns(addon)
-	handler:UpdateCallIns()
 
 	--// check dependencies
 	local rem = {}
@@ -1084,13 +674,13 @@ function handler:Remove(addon, _reason)
 	end
 
 	--// inform other addons
-	handler:WidgetRemoved(name, _reason or "user")
 	handler:AddonRemoved(name, _reason or "user")
 end
 
 --// backward compab.
-handler.LoadWidget   = handler.Load
-handler.RemoveWidget = handler.Remove
+handler[s"Load%{Addon}"]   = handler.Load
+handler[s"Remove%{Addon}"] = handler.Remove
+
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -1100,7 +690,7 @@ function handler:LoadOrderList()
 	if VFS.FileExists(ORDER_FILENAME) then
 		local success, rvalue = pcall(VFS.Include, ORDER_FILENAME, {math = {huge = math.huge}})
 		if (not success) then
-			spEcho(LUA_NAME .. ': Failed to load: ' .. ORDER_FILENAME .. '  (' .. rvalue .. ')')
+			Spring.Log(handler.name, "warning", LUA_NAME .. ': Failed to load: ' .. ORDER_FILENAME .. '  (' .. rvalue .. ')')
 		elseif (type(rvalue) == "table") then
 			handler.orderList = rvalue
 		end
@@ -1115,30 +705,32 @@ function handler:SaveOrderList()
 		handler.orderList[addon._info.name] = i
 		i = i + 1
 	end
-	table.save(handler.orderList, ORDER_FILENAME, '-- Widget Order List  (0 disables a widget)')
+	table.save(handler.orderList, ORDER_FILENAME, '-- Addon Order List  (0 disables an addon)')
 end
 
 
 function handler:LoadKnownData()
-	if (handler.initialized) then --FIXME
-		error "Called handler:LoadKnownData after Initialization."
+	if (handler.initialized) then --FIXME make the code below work even at runtime
+		error("Called handler:LoadKnownData after Initialization.", 2)
 	end
 
 	if VFS.FileExists(KNOWN_FILENAME) then
 		local success, rvalue = pcall(VFS.Include, KNOWN_FILENAME, {math = {huge = math.huge}})
 		if (not success) then
-			spEcho(LUA_NAME .. ': Failed to load: ' .. KNOWN_FILENAME .. '  (' .. rvalue .. ')')
+			Spring.Log(handler.name, "warning", LUA_NAME .. ': Failed to load: ' .. KNOWN_FILENAME .. '  (' .. rvalue .. ')')
+		elseif (type(rvalue) ~= "table") then
+			Spring.Log(handler.name, "warning", LUA_NAME .. ': Failed to load: ' .. KNOWN_FILENAME .. '  (broken data)')
 		else
-			handler.knownWidgets = rvalue
+			handler.knownInfos = rvalue
 		end
 	end
 
-	for i,ki in pairs(handler.knownWidgets) do
+	for i,ki in pairs(handler.knownInfos) do
 		ki.active = nil
 
 		--// Remove non-existing entries
 		if not VFS.FileExists(ki.filepath or "", (ki.fromZip and VFS.ZIP_ONLY) or VFS.RAW_ONLY) then
-			handler.knownWidgets[i] = nil
+			handler.knownInfos[i] = nil
 		end
 	end
 end
@@ -1146,13 +738,12 @@ end
 
 function handler:SaveKnownData()
 	local t = {}
-	for i,v in pairs(handler.knownWidgets) do
-		if ((v._rev or 0) <= 1) then --// Don't save/cache rev2 addons (there is no safety problem to get their info)
-			t[i] = v
+	for i,ki in pairs(handler.knownInfos) do
+		if ((ki._rev or 0) <= 1) then --// Don't save/cache rev2 addons (there is no safety problem to get their info)
+			t[i] = ki
 		end
 	end
-
-	table.save(t, KNOWN_FILENAME, '-- Filenames -> WidgetNames Translation Table')
+	table.save(t, KNOWN_FILENAME, '-- Filenames -> AddonNames Translation Table')
 end
 
 
@@ -1164,9 +755,9 @@ function handler:LoadConfigData()
 end
 
 
-function handler:SaveWidgetConfigData(addon)
+function handler:SaveAddonConfigData(addon)
 	if (addon.GetConfigData) then
-		local name = addon._info.name 
+		local name = addon._info.name
 		handler.configData[name] = SafeCallAddon(addon, "GetConfigData")
 	end
 end
@@ -1175,9 +766,9 @@ end
 function handler:SaveConfigData()
 	handler:LoadConfigData()
 	for _,addon in handler.addons:iter() do
-		handler:SaveWidgetConfigData(addon)
+		handler:SaveAddonConfigData(addon)
 	end
-	table.save(handler.configData, CONFIG_FILENAME, '-- Widget Custom Data')
+	table.save(handler.configData, CONFIG_FILENAME, '-- Addon Custom Data')
 end
 
 
@@ -1206,9 +797,9 @@ end
 
 
 function handler:Enable(name)
-	local ki = handler.knownWidgets[name]
+	local ki = handler.knownInfos[name]
 	if (not ki) then
-		spEcho(LUA_NAME .. "::Enable: Couldn\'t find \"" .. name .. "\".")
+		Spring.Log(handler.name, "warning", LUA_NAME .. "::Enable: Couldn\'t find \"" .. name .. "\".")
 		return false
 	end
 	if (ki.active) then
@@ -1226,9 +817,9 @@ end
 
 
 function handler:Disable(name)
-	local ki = handler.knownWidgets[name]
+	local ki = handler.knownInfos[name]
 	if (not ki) then
-		spEcho(LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
+		Spring.Log(handler.name, "warning", LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
 		return false
 	end
 	if (not ki.active)and((order or 0) > 0) then
@@ -1237,41 +828,49 @@ function handler:Disable(name)
 
 	local addon = handler:FindByName(name)
 	if (addon) then
-		spEcho(("Removed widget:  %-21s  %s"):format(name, handler:GetFancyString(name,ki.basename)))
+		local str = ((ki.api and "Removing API %s: ") or "Removing %s: "):format(handler.addonName)
+		Spring.Echo(("%-20s %-21s  %s"):format(str, name, handler:GetFancyString(name,ki.basename)))
 		handler:Remove(addon) --// deactivate
 		handler.orderList[name] = 0 --// disable
 		handler:SaveOrderList()
 		return true
 	else
-		spEcho(LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
+		Spring.Log(handler.name, "warning", LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
 	end
 end
 
 
 function handler:Toggle(name)
-	local ki = handler.knownWidgets[name]
+	local ki = handler.knownInfos[name]
 	if (not ki) then
-		spEcho(LUA_NAME .. "::Toggle: Couldn\'t find \"" .. name .. "\".")
+		Spring.Log(handler.name, "warning", LUA_NAME .. "::Toggle: Couldn\'t find \"" .. name .. "\".")
 		return
 	end
 
-	if (ki.active) then
-		return handler:Disable(name)
-	elseif (handler.orderList[name] <= 0) then
-		return handler:Enable(name)
-	else
-		--// the addon is not active, but enabled; disable it
-		handler.orderList[name] = 0
-		handler:SaveOrderList()
+	--// we don't want to crash the calling addon, so run in a pcall (FIXME make other/all code safe too?)
+	local status, msg = pcall(function()
+		if (ki.active) then
+			return handler:Disable(name)
+		elseif (handler.orderList[name] <= 0) then
+			return handler:Enable(name)
+		else
+			--// the addon is not active, but enabled; disable it
+			handler.orderList[name] = 0
+			handler:SaveOrderList()
+		end
+	end)
+	if not status then
+		Spring.Log(handler.name, "warning", LUA_NAME .. "::Toggle Error: \"" .. msg .. "\".")
+		return
 	end
-	return true
+	return status
 end
 
 --// backward compab.
-handler.FindWidgetByName = handler.FindByName
-handler.EnableWidget     = handler.Enable
-handler.DisableWidget    = handler.Disable
-handler.ToggleWidget     = handler.Toggle
+handler[s"Find%{Addon}ByName"] = handler.FindByName
+handler[s"Enable%{Addon}"]     = handler.Enable
+handler[s"Disable%{Addon}"]    = handler.Disable
+handler[s"Toggle%{Addon}"]     = handler.Toggle
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -1310,7 +909,7 @@ function handler:SetGlobal(owner, name, value)
 end
 
 
-function handler:RemoveWidgetGlobals(owner)
+function handler:RemoveAddonGlobals(owner)
 	local count = 0
 	for name, o in pairs(handler.globals) do
 		if (o == owner) then
@@ -1322,29 +921,7 @@ function handler:RemoveWidgetGlobals(owner)
 	return count
 end
 
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
---  Helper facilities
-
-local hourTimer = 0
-
-function handler:GetHourTimer()
-	return hourTimer
-end
-
-function handler:GetViewSizes()
-	return gl.GetViewSizes()
-end
-
-function handler:ForceLayout()
-	forceLayout = true  --FIXME in main.lua
-end
-
-function handler:ConfigLayoutHandler(data)
-	ConfigLayoutHandler(data)
-end
-
+handler[s"Remove%{Addon}Globals"] = handler.RemoveAddonGlobals
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -1407,7 +984,7 @@ function handler:UpdateCallIn(ciName)
 end
 
 
-function handler:UpdateWidgetCallIn(name, addon)
+function handler:UpdateAddonCallIn(name, addon)
 	local func = addon[name]
 	local result = false
 	if (type(func) == 'function') then
@@ -1421,7 +998,7 @@ function handler:UpdateWidgetCallIn(name, addon)
 end
 
 
-function handler:RemoveWidgetCallIn(name, addon)
+function handler:RemoveAddonCallIn(name, addon)
 	if RemoveAddonCallIn(name, addon) then
 		handler:UpdateCallIn(name)
 	end
@@ -1434,366 +1011,27 @@ function handler:UpdateCallIns()
 	end
 end
 
+handler[s"Remove%{Addon}CallIn"] = handler.RemoveAddonCallIn
+handler[s"Update%{Addon}CallIn"] = handler.UpdateAddonCallIn
 
 
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+--  Helper facilities
 
+function handler:ForceLayout()
+	forceLayout = true  --FIXME in main.lua
+end
 
-
-
-
+function handler:ConfigLayoutHandler(data) --FIXME obsolete?
+	ConfigLayoutHandler(data)
+end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 --  Some CallIns need custom handlers
 
-local hCallInLists = handler.callInLists
-local hHookFuncs   = handler.callInHookFuncs
-
-function hHookFuncs.Shutdown()
-	handler:SaveOrderList()
-	handler:SaveConfigData()
-	for _,f in hCallInLists.Shutdown:iter() do
-		f()
-	end
-end
-
-
-function hHookFuncs.ConfigureLayout(command)
-	if (command == 'reconf') then
-		handler:SendConfigData()
-		return true
-	elseif (command:find('togglewidget') == 1) then
-		handler:Toggle(string.sub(command, 14))
-		return true
-	elseif (command:find('enablewidget') == 1) then
-		handler:Enable(string.sub(command, 14))
-		return true
-	elseif (command:find('disablewidget') == 1) then
-		handler:Disable(string.sub(command, 15))
-		return true
-	elseif (command:find('callins') == 1) then
-		Spring.Echo(LUA_NAME .. ": known callins are:")
-		Spring.Echo("  (NOTE: This list contains a few (e.g. cause of LOS checking) unhandled CallIns, too.)")
-		local o = {}
-		for i,v in pairs(knownCallIns) do
-			local t = {}
-			for j,w in pairs(v) do
-				t[#t+1] = j .. "=" .. tostring(w)
-			end
-			o[#o+1] = ("  %-25s "):format(i .. ":") .. table.concat(t, ", ")
-		end
-		table.sort(o)
-		for i=1,#o do
-			Spring.Echo(o[i])
-		end
-		return true
-	end
-
-	if (actionHandler.TextAction(command)) then
-		return true
-	end
-
-	for _,f in hCallInLists.TextCommand:iter() do
-		if (f(command)) then
-			return true
-		end
-	end
-
-	return false
-end
-
-
-function hHookFuncs.Update()
-	local deltaTime = Spring.GetLastUpdateSeconds()
-	hourTimer = (hourTimer + deltaTime) % 3600
-
-	for _,f in hCallInLists.Update:iter() do
-		f(deltaTime)
-	end
-end
-
-
-function hHookFuncs.CommandNotify(id, params, options)
-	for _,f in hCallInLists.CommandNotify:iter() do
-		if (f(id, params, options)) then
-			return true
-		end
-	end
-
-	return false
-end
-
-
-function hHookFuncs.CommandsChanged()
-	handler:UpdateSelection() --// for selectionchanged
-	handler.inCommandsChanged = true
-	handler.customCommands = {}
-
-	for _,f in hCallInLists.CommandsChanged:iter() do
-		f()
-	end
-
-	handler.inCommandsChanged = false
-end
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
---  Drawing call-ins
-
-function hHookFuncs.ViewResize(viewGeometry)
-	local vsx = viewGeometry.viewSizeX
-	local vsy = viewGeometry.viewSizeY
-	for _,f in hCallInLists.ViewResize:iter() do
-		f(vsx, vsy, viewGeometry)
-	end
-end
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
---  Keyboard call-ins
-
-function hHookFuncs.KeyPress(key, mods, isRepeat, label, unicode)
-	if (actionHandler.KeyAction(true, key, mods, isRepeat)) then
-		return true
-	end
-
-	for _,f in hCallInLists.KeyPress:iter() do
-		if f(key, mods, isRepeat, label, unicode) then
-			return true
-		end
-	end
-
-	return false
-end
-
-
-function hHookFuncs.KeyRelease(key, mods, label, unicode)
-	if (actionHandler.KeyAction(false, key, mods, false)) then
-		return true
-	end
-
-	for _,f in hCallInLists.KeyRelease:iter() do
-		if f(key, mods, label, unicode) then
-			return true
-		end
-	end
-
-	return false
-end
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
---  Mouse call-ins
-
-do
-	local lastDrawFrame = 0
-	local lastx,lasty = 0,0
-	local lastWidget
-
-	local spGetDrawFrame = Spring.GetDrawFrame
-
-	--// local helper
-	function handler:WidgetAt(x, y)
-		local drawframe = spGetDrawFrame()
-		if (lastDrawFrame == drawframe)and(lastx == x)and(lasty == y) then
-			return lastWidget
-		end
-
-		lastDrawFrame = drawframe
-		lastx = x
-		lasty = y
-
-		for it,f in hCallInLists.IsAbove:iter() do
-			if f(x, y) then
-				lastWidget = it.owner
-				return lastWidget
-			end
-		end
-
-		lastWidget = nil
-		return nil
-	end
-end
-
-
-function hHookFuncs.MousePress(x, y, button)
-	local mo = handler.mouseOwner
-	if (mo and mo.MousePress__) then
-		SafeCallAddon(mo, "MousePress__", x, y, button)
-		return true  --// already have an active press
-	end
-
-	for it,f in hCallInLists.MousePress:iter() do
-		if f(x, y, button) then
-			handler.mouseOwner = it.owner
-			return true
-		end
-	end
-	return false
-end
-
-
-function hHookFuncs.MouseMove(x, y, dx, dy, button)
-	--FIXME send this event to all widgets (perhaps via a new callin PassiveMouseMove?)
-
-	local mo = handler.mouseOwner
-	if (mo) then
-		return SafeCallAddon(mo, "MouseMove__", x, y, dx, dy, button)
-	end
-end
-
-
-function hHookFuncs.MouseRelease(x, y, button)
-	local mo = handler.mouseOwner
-	local mx, my, lmb, mmb, rmb = Spring.GetMouseState()
-	if (not (lmb or mmb or rmb)) then
-		handler.mouseOwner = nil
-	end
-
-	if (not mo) then
-		return -1
-	end
-
-	return SafeCallAddon(mo, "MouseRelease__", x, y, button) or -1
-end
-
-
-function hHookFuncs.MouseWheel(up, value)
-	for _,f in hCallInLists.MouseWheel:iter() do
-		if (f(up, value)) then
-			return true
-		end
-	end
-	return false
-end
-
-
-function hHookFuncs.IsAbove(x, y)
-	return (handler:WidgetAt(x, y) ~= nil)
-end
-
-
-function hHookFuncs.GetTooltip(x, y)
-	for it,f in hCallInLists.GetTooltip:iter() do
-		if (SafeCallAddon(it.owner, "IsAbove__", x, y)) then
-			local tip = f(x, y)
-			if ((type(tip) == 'string') and (#tip > 0)) then
-				return tip
-			end
-		end
-	end
-	return ""
-end
-
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
---  Game call-ins
-
-function hHookFuncs.WorldTooltip(ttType, ...)
-	for _,f in hCallInLists.WorldTooltip:iter() do
-		local tt = f(ttType, ...)
-		if ((type(tt) == 'string') and (#tt > 0)) then
-			return tt
-		end
-	end
-end
-
-
-function hHookFuncs.MapDrawCmd(playerID, cmdType, px, py, pz, ...)
-	local retval = false
-	for _,f in hCallInLists.MapDrawCmd:iter() do
-		local takeEvent = f(playerID, cmdType, px, py, pz, ...)
-		if (takeEvent) then
-			retval = true
-		end
-	end
-	return retval
-end
-
-
-function hHookFuncs.GameSetup(state, ready, playerStates)
-	for _,f in hCallInLists.GameSetup:iter() do
-		local success, newReady = f(state, ready, playerStates)
-		if (success) then
-			return true, newReady
-		end
-	end
-	return false
-end
-
-
-function hHookFuncs.DefaultCommand(...)
-	for _,f in hCallInLists.DefaultCommand:iter() do
-		local result = f(...)
-		if (type(result) == 'number') then
-			return result
-		end
-	end
-	return nil  --// not a number, use the default engine command
-end
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
---  RecvLuaMsg
-
-function hHookFuncs.RecvLuaMsg(msg, playerID)
-	local retval = false
-	--FIXME: another actionHandler type?
-	--if (actionHandler.RecvLuaMsg(msg, playerID)) then
-	--	retval = true
-	--end
-
-	for _,f in hCallInLists.RecvLuaMsg:iter() do
-		if (f(msg, playerID)) then
-			retval = true
-		end
-	end
-	return retval
-end
-
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
--- Custom SelectionChanged callin
-
---// local helper
-local oldSelection = {}
-function handler:UpdateSelection()
-	local changed = false
-	local newSelection = Spring.GetSelectedUnits()
-	if (#newSelection == #oldSelection) then
-		for i=1, #newSelection do
-			if (newSelection[i] ~= oldSelection[i]) then --// it seems the order stays
-				changed = true
-				break
-			end
-		end
-	else
-		changed = true
-	end
-	if (changed) then
-		handler:SelectionChanged(newSelection)
-	end
-	oldSelection = newSelection
-end
-
-
-function hHookFuncs.SelectionChanged(selectedUnits)
-	for _,f in hCallInLists.SelectionChanged:iter() do
-		local unitArray = f(selectedUnits)
-		if (unitArray) then
-			Spring.SelectUnitArray(unitArray)
-			selectedUnits = unitArray
-		end
-	end
-end
-
+require "specialCallinHandlers.lua"
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------

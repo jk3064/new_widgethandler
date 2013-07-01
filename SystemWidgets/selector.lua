@@ -150,7 +150,7 @@ local function UpdateListScroll()
   if (lastStart < 1) then lastStart = 1 end
   if (startEntry > lastStart) then startEntry = lastStart end
   if (startEntry < 1) then startEntry = 1 end
-  
+
   widgetsList = {}
   local se = startEntry
   local ee = se + maxEntries - 1
@@ -206,8 +206,8 @@ local function UpdateList()
   local myName = widget:GetInfo().name
   maxWidth = 0
   fullWidgetsList = {}
-  for name,data in pairs(widgetHandler.knownWidgets) do
-    if (not data.hidden) then
+  for name,data in pairs(widgetHandler.knownAddons) do
+    if (not data.hidden and not data.blocked) then
       table.insert(fullWidgetsList, { name, data })
       -- look for the maxWidth
       local width = fontSize * gl.GetTextWidth(name)
@@ -324,12 +324,12 @@ function widget:DrawScreen()
   -- draw the box
   gl.Color(0.3, 0.3, 0.3, 1.0)
   gl.Texture(":n:bitmaps/detailtex.bmp")
-  local ts = (2.0 / 512)  --  texture scale 
+  local ts = (2.0 / 512)  --  texture scale
   gl.Shape(GL.QUADS, {
     { v = { minx, miny }, t = { minx * ts, miny * ts } },
     { v = { maxx, miny }, t = { maxx * ts, miny * ts } },
     { v = { maxx, maxy }, t = { maxx * ts, maxy * ts } },
-    { v = { minx, maxy }, t = { minx * ts, maxy * ts } } 
+    { v = { minx, maxy }, t = { minx * ts, maxy * ts } }
   })
   gl.Texture(false)
 
@@ -381,13 +381,13 @@ function widget:DrawScreen()
   if #widgetsList < #fullWidgetsList then
     sby2 = posy + yStep - fontSpace * 0.5
     sbheight = sby1 - sby2
-    sbsize = sbheight * #widgetsList / #fullWidgetsList 
+    sbsize = sbheight * #widgetsList / #fullWidgetsList
     if activescrollbar then
     	startEntry = math.max(0, math.min(
-    	math.floor(#fullWidgetsList * 
-    	((sby1 - sbsize) - 
+    	math.floor(#fullWidgetsList *
+    	((sby1 - sbsize) -
     	(my - math.min(scrollbargrabpos, sbsize)))
-    	 / sbheight + 0.5), 
+    	 / sbheight + 0.5),
                          #fullWidgetsList - maxEntries)) + 1
     end
     local sizex = maxx - minx
@@ -395,7 +395,7 @@ function widget:DrawScreen()
     sbposy = sby1 - sbsize - sbheight * (startEntry - 1) / #fullWidgetsList
     sbsizex = yStep
     sbsizey = sbsize
-    
+
     gl.Color(0.0, 0.0, 0.0, 0.8)
     gl.Shape(GL.QUADS, {
       { v = { sbposx, miny } }, { v = { sbposx, maxy } },
@@ -447,32 +447,32 @@ function widget:DrawScreen()
     gl.Shape(GL.QUADS, {
       { v = { sbposx, sby2 } }, { v = { sbposx, sby2 + sbheight } },
       { v = { sbposx + sbsizex, sby2 + sbheight } }, { v = { sbposx + sbsizex, sby2 } }
-    })    
+    })
     gl.Color(1.0, 1.0, 1.0, 0.4)
     gl.Shape(GL.LINE_LOOP, {
       { v = { sbposx, sby2 } }, { v = { sbposx, sby2 + sbheight } },
       { v = { sbposx + sbsizex, sby2 + sbheight } }, { v = { sbposx + sbsizex, sby2 } }
-    })    
+    })
 
     gl.Color(0.8, 0.8, 0.8, 0.8)
     gl.Shape(GL.QUADS, {
       { v = { sbposx, sbposy } }, { v = { sbposx, sbposy + sbsizey } },
       { v = { sbposx + sbsizex, sbposy + sbsizey } }, { v = { sbposx + sbsizex, sbposy } }
-    })    
+    })
     if activescrollbar or (sbposx < mx and mx < sbposx + sbsizex and sbposy < my and my < sbposy + sbsizey) then
       gl.Color(0.2, 0.2, 1.0, 0.2)
       gl.Blending(false)
       gl.Shape(GL.LINE_LOOP, {
         { v = { sbposx, sbposy } }, { v = { sbposx, sbposy + sbsizey } },
         { v = { sbposx + sbsizex, sbposy + sbsizey } }, { v = { sbposx + sbsizex, sbposy } }
-      })    
+      })
       gl.Blending(GL.SRC_ALPHA, GL.ONE)
       gl.Shape(GL.QUADS, {
         { v = { sbposx + 0.5, sbposy + 0.5 } }, { v = { sbposx + 0.5, sbposy + sbsizey - 0.5 } },
         { v = { sbposx + sbsizex - 0.5, sbposy + sbsizey - 0.5 } }, { v = { sbposx + sbsizex - 0.5, sbposy + 0.5 } }
       })
       gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
-    end  
+    end
   else
     sbposx = 0.0
     sbposy = 0.0
@@ -664,11 +664,11 @@ function widget:AboveLabel(x, y)
   end
   local count = #widgetsList
   if (count < 1) then return nil end
-  
+
   local i = floor(1 + ((maxy - bordery) - y) / yStep)
   if     (i < 1)     then i = 1
   elseif (i > count) then i = count end
-  
+
   return widgetsList[i]
 end
 
@@ -684,7 +684,7 @@ end
 
 
 function widget:GetTooltip(x, y)
-  UpdateList()  
+  UpdateList()
   local namedata = self:AboveLabel(x, y)
   if (not namedata) then
     return '\255\200\255\200'..'Widget Selector\n'  ..
@@ -696,7 +696,7 @@ function widget:GetTooltip(x, y)
 
   local order = widgetHandler.orderList[n]
   local enabled = order and (order > 0)
-  
+
   local tt = (d.active and GreenStr) or (enabled  and YellowStr) or RedStr
   tt = tt .. d.name ..  " (v" .. d.version .. ")" .. "\n"
   tt = d.desc   and tt..WhiteStr..d.desc..'\n' or tt

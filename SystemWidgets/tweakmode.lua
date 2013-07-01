@@ -50,9 +50,9 @@ function widget:Initialize()
     return self.tweakMode
   end
 
-  local orig_NewWidget = handler.NewWidget
-  function handler:NewWidget()
-    local env = orig_NewWidget(self)
+  local orig_NewAddon = handler.NewAddon
+  function handler:NewAddon(...)
+    local env = orig_NewAddon(self, ...)
     local h   = env[handler.name]
     h.InTweakMode = handler.InTweakMode
     return env

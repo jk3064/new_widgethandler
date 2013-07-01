@@ -11,18 +11,36 @@
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
---// Config & Widget Locations 
+--// Config & Widget Locations
 ORDER_FILENAME  = LUAUI_DIRNAME .. 'Config/' .. Game.modShortName .. '_order.lua'
 CONFIG_FILENAME = LUAUI_DIRNAME .. 'Config/' .. Game.modShortName .. '_data.lua'
 KNOWN_FILENAME  = LUAUI_DIRNAME .. 'Config/' .. Game.modShortName .. '_known.lua'
-WIDGET_DIRS     = {
+ADDON_DIRS     = {
 	LUAUI_DIRNAME .. 'Widgets/';
 	LUAUI_DIRNAME .. 'SystemWidgets/';
 }
 
 
---// cache the results of time intensive funcs
-include("Utilities/cache.lua", handler.EG)
+--// reset widget state & data on version changes
+do
+	local ORDER_VERSION = 3
+	local DATA_VERSION  = 2
+
+	--FIXME do this on a per widget level!!!
+	handler:LoadOrderList()
+	if (handler.orderList.version or ORDER_VERSION) < ORDER_VERSION then
+		handler.orderList = {}
+		handler.orderList.version = ORDER_VERSION
+		table.save(handler.orderList, ORDER_FILENAME, '-- Widget Order List  (0 disables a widget)')
+	end
+
+	handler:LoadConfigData()
+	if (handler.configData.version or DATA_VERSION) < DATA_VERSION then
+		handler.configData = {}
+		handler.configData.version = DATA_VERSION
+		table.save(handler.configData, CONFIG_FILENAME, '-- Widget Custom Data')
+	end
+end
 
 
 --// how to handle local widgets
@@ -36,28 +54,6 @@ do
 	end
 end
 handler.autoUserWidgets = (Spring.GetConfigInt('LuaAutoEnableUserWidgets', 1) ~= 0)
-
-
---// reset widget state & data on version changes
-do
-	local ORDER_VERSION = 3
-	local DATA_VERSION  = 2
-
-	--FIXME do this on a per widget level!!!
-	handler:LoadOrderList()
-	if (handler.orderList.version or ORDER_VERSION) < ORDER_VERSION then 
-		handler.orderList = {}
-		handler.orderList.version = ORDER_VERSION
-		table.save(handler.orderList, ORDER_FILENAME, '-- Widget Order List  (0 disables a widget)')
-	end
-
-	handler:LoadConfigData()
-	if (handler.configData.version or DATA_VERSION) < DATA_VERSION then
-		handler.configData = {}
-		handler.configData.version = DATA_VERSION
-		table.save(handler.configData, CONFIG_FILENAME, '-- Widget Custom Data')
-	end
-end
 
 
 --// VFS Mode
@@ -74,16 +70,24 @@ SAFEWRAP = 1
 SAFEDRAW = false  --// requires SAFEWRAP to work
 
 
-handler.verbose = false
+handler.verbose = false or true
 
 
 
 --// ZK related
+--// cache the results of time intensive funcs
+include("Utilities/cache.lua", handler.EG)
+
 handler.isStable = Game.modVersion:find("stable",1,true)
 function handler:IsStable()
 	return self.isStable
 end
 
+--[[
+--FIXME
+if (not handler.NewWidget) then
+	error "handler.NewWidget missing"
+end
 local orig_NewWidget = handler.NewWidget
 function handler:NewWidget()
 	local env = orig_NewWidget(self)
@@ -93,9 +97,13 @@ function handler:NewWidget()
 	return env
 end
 
-local orig_LoadWidgetInfo = handler.LoadWidgetInfo
-function handler:LoadWidgetInfo(...)
-	local wi = orig_LoadWidgetInfo(self, ...)
+--FIXME
+if (not handler.LoadAddonInfo) then
+	error "handler.LoadAddonInfo missing"
+end
+local orig_LoadAddonInfo = handler.LoadAddonInfo
+function handler:LoadAddonInfo(...)
+	local wi = orig_LoadAddonInfo(self, ...)
 
 	if (wi) then
 		--// exprimental widget
@@ -108,3 +116,4 @@ function handler:LoadWidgetInfo(...)
 
 	return wi
 end
+--]]

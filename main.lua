@@ -20,8 +20,6 @@ if (VFS.FileExists("gamedata/lockluaui.txt")) then
 	VFS.DEF_MODE = VFS.ZIP_FIRST
 end
 
-Spring.SendCommands("ctrlpanel " .. LUAUI_DIRNAME .. "ctrlpanel.txt")
-
 -------------------------------------------------------------------------------
 -------------------------------------------------------------------------------
 --
@@ -36,7 +34,7 @@ require "layout.lua" --FIXME make it a widget?
 --// Lua-based fonthandler (deprecated)
 require "fonts.lua"
 
---// the widget handler
+--// the addon handler
 include "handler.lua"
 
 --// print Lua & LuaUI version
@@ -48,7 +46,7 @@ Spring.Echo(LUAUI_VERSION .. " (" .. _VERSION .. ")")
 --  Update()
 --
 
-activePage = 0
+local activePage = 0
 forceLayout = true
 
 --FIXME move to handler or a widget?
@@ -56,7 +54,7 @@ function Update()
 	local currentPage = Spring.GetActivePage()
 	if (forceLayout or (currentPage ~= activePage)) then
 		Spring.ForceLayoutUpdate()  --for the page number indicator
-	forceLayout = false
+		forceLayout = false
 	end
 	activePage = currentPage
 

@@ -11,6 +11,9 @@
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
+
+Spring.SendCommands("ctrlpanel " .. LUAUI_DIRNAME .. "Assets/ctrlpanel.txt")
+
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 --
@@ -68,11 +71,11 @@ local function DefaultHandler(xIcons, yIcons, cmdCount, commands)
   handler.commands.n = cmdCount
   handler:CommandsChanged()
 
-  -- FIXME: custom commands  
+  -- FIXME: custom commands
   if (cmdCount <= 0) then
     return "", xIcons, yIcons, {}, {}, {}, {}, {}, {}, {}, {}
   end
-  
+
   local menuName = ''
   local removeCmds = {}
   local customCmds = handler.customCommands
@@ -107,7 +110,7 @@ local function DefaultHandler(xIcons, yIcons, cmdCount, commands)
   if (xIcons > 2) then
     local color
     if (commands[1].id < 0) then color = GreenStr else color = RedStr end
-    local activePage = activePage or 0
+    local activePage = Spring.GetActivePage()
     local pageNum = '' .. (activePage + 1) .. ''
     PageNumCmd.name = color .. '   ' .. pageNum .. '   '
     table.insert(customCmds, PageNumCmd)

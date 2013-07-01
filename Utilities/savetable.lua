@@ -47,7 +47,7 @@ local function encloseKey(s)
   if (not wrap) then
     if (keyWordSet[s]) then wrap = true end
   end
-    
+
   if (wrap) then
     return string.format('[%q]', s)
   else
@@ -106,11 +106,10 @@ end
 
 
 local function SaveTable(t, file, indent)
-  file:write('{\n')
   local indent = indent .. indentString
-  
+
   local st = MakeSortedTable(t)
-  
+
   for _,kv in ipairs(st) do
     local k, v = kv[1], kv[2]
     local ktype = type(k)
@@ -140,6 +139,7 @@ local function SaveTable(t, file, indent)
       end
       if (next(v)) then
         savedTables[t] = true
+	file:write('{\n')
         SaveTable(v, file, indent)
         file:write(indent..'},\n')
         savedTables[t] = nil
@@ -159,8 +159,8 @@ function table.save(t, filename, header)
   if (header) then
     file:write(header..'\n')
   end
-  file:write('return ')
-  SaveTable(t, file, '')
+  file:write('return {\n')
+  if (type(t)=="table")or(type(t)=="metatable") then SaveTable(t, file, '') end
   file:write('}\n')
   file:close()
   for k,v in pairs(savedTables) do
