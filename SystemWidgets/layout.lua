@@ -24,7 +24,7 @@ if addon.InGetInfo then
 		layer     = math.huge;
 		hidden    = true; -- don't show in the widget selector
 		api       = true; -- load before all others?
-		before    = {};
+		before    = {"all"};
 		after     = {};
 
 		enabled   = true; -- loaded by default?
@@ -252,8 +252,20 @@ function addon.Update()
 	activePage = currentPage
 end
 
-ConfigLayoutHandler(DefaultHandler)
-handler.EG.ConfigLayoutHandler = ConfigLayoutHandler
-handler.EG.ForceLayout = function() forceLayout = true end
+
+function addon.Initialize()
+	ConfigLayoutHandler(DefaultHandler)
+	handler.EG.ConfigLayoutHandler = ConfigLayoutHandler
+	handler.EG.ForceLayout = function() forceLayout = true end
+
+	local orig_NewAddon = handler.NewAddon
+	assert(orig_NewAddon)
+	function handler:NewAddon(...)
+		local env = orig_NewAddon(self, ...)
+		local h   = env.handler
+		h.ConfigLayoutHandler = ConfigLayoutHandler
+		return env
+	end
+end
 
 --------------------------------------------------------------------------------

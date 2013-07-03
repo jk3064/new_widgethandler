@@ -43,10 +43,8 @@ Spring.Echo(LUAUI_VERSION .. " (" .. _VERSION .. ")")
 --  Update()
 --
 
---FIXME move to handler or a widget?
 function Update()
-	fontHandler.Update()
-
+	fontHandler.Update() --FIXME move to handler or a widget?
 	handler:Update()
 end
 

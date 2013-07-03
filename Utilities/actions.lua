@@ -63,38 +63,38 @@ local function MakeKeySetString(key, mods)
 end
 
 
-local function InsertCallInfo(callInfoList, widget, func, data)
-	local layer = widget._info.layer
+local function InsertCallInfo(callInfoList, addon, func, data)
+	local layer = addon._info.layer
 	local index = 1
 	for i,ci in ipairs(callInfoList) do
 		local w = ci[1]
-		if (w == widget) then
+		if (w == addon) then
 			return false  --  already in the table
 		end
 		if (layer >= w._info.layer) then
 			index = i + 1
 		end
 	end
-	table.insert(callInfoList, index, { widget, func, data })
+	table.insert(callInfoList, index, { addon, func, data })
 	return true
 end
 
 
-local function InsertAction(map, cmd, widget, func, data)
+local function InsertAction(map, cmd, addon, func, data)
 	local callInfoList = map[cmd]
 	if not callInfoList then
 		callInfoList = {}
 		map[cmd] = callInfoList
 	end
-	return InsertCallInfo(callInfoList, widget, func, data)
+	return InsertCallInfo(callInfoList, addon, func, data)
 end
 
 
-local function RemoveCallInfo(callInfoList, widget)
+local function RemoveCallInfo(callInfoList, addon)
 	local count = 0
 	for i,callInfo in ipairs(callInfoList) do
 		local w = callInfo[1]
-		if (w == widget) then
+		if (w == addon) then
 			table.remove(callInfoList, i)
 			count = count + 1
 			-- break
@@ -104,19 +104,19 @@ local function RemoveCallInfo(callInfoList, widget)
 end
 
 
-local function ClearActionList(actionMap, widget)
+local function ClearActionList(actionMap, addon)
 	for cmd, callInfoList in pairs(actionMap) do
-		RemoveCallInfo(callInfoList, widget)
+		RemoveCallInfo(callInfoList, addon)
 	end
 end
 
 
-local function RemoveAction(map, widget, cmd)
+local function RemoveAction(map, addon, cmd)
 	local callInfoList = map[cmd]
 	if (callInfoList == nil) then
 		return false
 	end
-	local count = RemoveCallInfo(callInfoList, widget)
+	local count = RemoveCallInfo(callInfoList, addon)
 	if (#callInfoList <= 0) then
 		map[cmd] = nil
 	end
@@ -130,7 +130,7 @@ local function TryAction(actionMap, cmd, optLine, optWords, isRepeat, release)
 		return false
 	end
 	for i,callInfo in ipairs(callInfoList) do
-		--local widget = callInfo[1]
+		--local addon = callInfo[1]
 		local func   = callInfo[2]
 		local data   = callInfo[3]
 		if (func(cmd, optLine, optWords, data, isRepeat, release)) then
@@ -149,12 +149,12 @@ end
 --  Insertions
 --
 
-local function AddWidgetAction(widget, cmd, func, data, types, _)
+local function AddAddonAction(addon, cmd, func, data, types, _)
 	assert(_ == nil, "actionHandler:Foobar() is deprecated, use actionHandler.Foobar()!")
 
-	-- make sure that this is a fully initialized widget
-	if (not widget._info) then
-		error("LuaUI error adding action: please use widget:Initialize()")
+	-- make sure that this is a fully initialized addon
+	if (not addon._info) then
+		error("LuaUI error adding action: please use addon:Initialize()")
 	end
 
 	-- default to text and keyPress  (not repeat or releases)
@@ -162,10 +162,10 @@ local function AddWidgetAction(widget, cmd, func, data, types, _)
 
 	local tSuccess, pSuccess, RSuccess, rSuccess = false, false, false, false
 
-	if (text)       then tSuccess = InsertAction(textActions, cmd, widget, func, data)       end
-	if (keyPress)   then pSuccess = InsertAction(keyPressActions, cmd, widget, func, data)   end
-	if (keyRepeat)  then RSuccess = InsertAction(keyRepeatActions, cmd, widget, func, data)  end
-	if (keyRelease) then rSuccess = InsertAction(keyReleaseActions, cmd, widget, func, data) end
+	if (text)       then tSuccess = InsertAction(textActions, cmd, addon, func, data)       end
+	if (keyPress)   then pSuccess = InsertAction(keyPressActions, cmd, addon, func, data)   end
+	if (keyRepeat)  then RSuccess = InsertAction(keyRepeatActions, cmd, addon, func, data)  end
+	if (keyRelease) then rSuccess = InsertAction(keyReleaseActions, cmd, addon, func, data) end
 
 	return tSuccess, pSuccess, RSuccess, rSuccess
 end
@@ -177,7 +177,7 @@ end
 --  Removals
 --
 
-local function RemoveWidgetAction(widget, cmd, types, _)
+local function RemoveAddonAction(addon, cmd, types, _)
 	assert(_ == nil, "actionHandler:Foobar() is deprecated, use actionHandler.Foobar()!")
 
 	-- default to removing all
@@ -185,22 +185,22 @@ local function RemoveWidgetAction(widget, cmd, types, _)
 
 	local tSuccess, pSuccess, RSuccess, rSuccess = false, false, false, false
 
-	if (text)       then tSuccess = RemoveAction(textActions, widget, cmd)       end
-	if (keyPress)   then pSuccess = RemoveAction(keyPressActions, widget, cmd)   end
-	if (keyRepeat)  then RSuccess = RemoveAction(keyRepeatActions, widget, cmd)  end
-	if (keyRelease) then rSuccess = RemoveAction(keyReleaseActions, widget, cmd) end
+	if (text)       then tSuccess = RemoveAction(textActions, addon, cmd)       end
+	if (keyPress)   then pSuccess = RemoveAction(keyPressActions, addon, cmd)   end
+	if (keyRepeat)  then RSuccess = RemoveAction(keyRepeatActions, addon, cmd)  end
+	if (keyRelease) then rSuccess = RemoveAction(keyReleaseActions, addon, cmd) end
 
 	return tSuccess, pSuccess, RSuccess, rSuccess
 end
 
 
-local function RemoveWidgetActions(widget, _)
+local function RemoveAddonActions(addon, _)
 	assert(_ == nil, "actionHandler:Foobar() is deprecated, use actionHandler.Foobar()!")
 
-	ClearActionList(textActions, widget)
-	ClearActionList(keyPressActions, widget)
-	ClearActionList(keyRepeatActions, widget)
-	ClearActionList(keyReleaseActions, widget)
+	ClearActionList(textActions, addon)
+	ClearActionList(keyPressActions, addon)
+	ClearActionList(keyRepeatActions, addon)
+	ClearActionList(keyReleaseActions, addon)
 end
 
 
@@ -261,19 +261,19 @@ actionHandler = {
 	KeyAction  = KeyAction,
 	TextAction = TextAction,
 
-	AddWidgetAction = AddWidgetAction,
-	RemoveWidgetAction  = RemoveWidgetAction,
-	RemoveWidgetActions = RemoveWidgetActions,
+	AddAction = AddAddonAction,
+	RemoveAction  = RemoveAddonAction,
+	RemoveAddonActions = RemoveAddonActions,
 
-	--used by rev1 widgets
+	--used by rev1 addons
 	oldSyntax = {
 		KeyAction           = function(_, ...) return KeyAction(...) end,
 		TextAction          = function(_, ...) return TextAction(...) end,
-		AddAction           = function(_, ...) return AddWidgetAction(...) end,
-		RemoveAction        = function(_, ...) return RemoveWidgetAction(...) end,
-		RemoveWidgetActions = function(_, ...) return RemoveWidgetActions(...) end,
+		AddAction           = function(_, ...) return AddAddonAction(...) end,
+		RemoveAction        = function(_, ...) return RemoveAddonAction(...) end,
+		RemoveWidgetActions = function(_, ...) return RemoveAddonActions(...) end,
 	}
-	
+
 	--LuaRules
 	--GotChatMsg     = GotChatMsg
 	--RecvFromSynced = RecvFromSynced

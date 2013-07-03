@@ -26,6 +26,7 @@ function widget:GetInfo()
     hidden    = true, -- don't show in the widget selector
     handler   = true, -- needs the real widgetHandler
     enabled   = true, -- loaded by default?
+    api       = true;
     before    = {"all"},
     after     = {"TweakMode"},
   }

@@ -35,9 +35,6 @@ require "VFS_GetFileChecksum.lua"
 --------------------------------------------------------------------------------
 -- SpeedUp & Helpers
 
-local spEcho       = Spring.Echo
-local glPopAttrib  = gl.PopAttrib
-local glPushAttrib = gl.PushAttrib
 local type   = type
 local pcall  = pcall
 local pairs  = pairs
@@ -128,10 +125,12 @@ setmetatable(handler, {
 	__index = function(self, key)
 		if (key == "knownWidgets") or (key == "knownAddons") then
 			return self.knownInfos
+		elseif (key == "actionHandler") then
+			return actionHandler.oldSyntax
 		end
 
 		local firstChar = key:sub(1,1)
-		if (firstChar == firstChar:upper()) then
+		if (firstChar == firstChar:upper() and self.knownCallIns[key]) then
 			return function(_, ...)
 				if (self.callInHookFuncs[key]) then
 					return self.callInHookFuncs[key](...)
@@ -141,22 +140,6 @@ setmetatable(handler, {
 			end
 		end
 	end;
-
---[[
-	__newindex = function(self, key, value)
-		if (key == "knownWidgets") or (key == "knownAddons") then
-			error("not allowed", 2)
-		end
-
-		if type(value) == "function" then
-			if not self[key] then
-				error("overriding function not allowed", 2)
-			end
-		end
-
-		rawset(self, key, value) --FIXME rawset is not available in LuaRules!!!
-	end
---]]
 })
 
 
@@ -261,8 +244,7 @@ function handler:UpdateAddonList()
 	handler:SearchForNew()
 
 	--// Create list all to load files
-	spEcho(("%s: Loading %ss   <>=vfs  **=raw  ()=unknown"):format(LUA_NAME, handler.addonName))
-	handler:DetectEnabledAddons()
+	Spring.Log(LUA_NAME, "info", ("Loading %ss   <>=vfs  **=raw  ()=unknown"):format(handler.addonName))
 
 	local loadList = {}
 	for name,order in pairs(handler.orderList) do
@@ -315,10 +297,16 @@ handler[("Update%sList"):format(handler.AddonName)] = handler.UpdateAddonList
 --------------------------------------------------------------------------------
 -- Addon Files Finder
 
-local function GetAllAddonFiles()
+function handler:SetVFSMode(newmode)
+	VFSMODE = newmode
+end
+
+
+local function GetAllAddonFiles(quiet)
+	local spLog = ((quiet) and function() end) or Spring.Log
 	local addonFiles = {}
 	for i,dir in pairs(ADDON_DIRS) do
-		spEcho(LUA_NAME .. " Scanning: " .. dir)
+		spLog(LUA_NAME, "info", "Scanning: " .. dir)
 		local files = VFS.DirList(dir, "*.lua", VFSMODE)
 		if (files) then
 			tappend(addonFiles, files)
@@ -338,10 +326,10 @@ end
 
 
 function handler:SearchForNew(quiet)
-	if (quiet) then spEcho = function() end end
-	spEcho(LUA_NAME .. ": Searching for new " .. handler.AddonName .. "s")
+	local spLog = ((quiet) and function() end) or Spring.Log
+	spLog(LUA_NAME, "info", "Searching for new " .. handler.AddonName .. "s")
 
-	local addonFiles = GetAllAddonFiles()
+	local addonFiles = GetAllAddonFiles(quiet)
 	for _,fpath in ipairs(addonFiles) do
 		local name = handler:FindNameByPath(fpath)
 		local ki = name and handler.knownInfos[name]
@@ -362,14 +350,13 @@ function handler:SearchForNew(quiet)
 
 			if (ki) then
 				if (handler.verbose and ki._rev >= 2) then
-					spEcho(("%s: Found new %s \"%s\""):format(LUA_NAME, handler.addonName, ki.name))
+					spLog(LUA_NAME, "info", ("Found new %s \"%s\""):format(handler.addonName, ki.name))
 				end
 			end
 		end
 	end
 
 	handler:DetectEnabledAddons()
-	if (quiet) then spEcho = Spring.Echo end
 end
 
 
@@ -382,7 +369,7 @@ function handler:DetectEnabledAddons()
 			--// enabled or not?
 			local order = handler.orderList[ki.name]
 			if ((order or 0) > 0)
-				or ((order == nil) and defEnabled and (handler.autoUserWidgets or ki.fromZip))
+				or ((order == nil) and defEnabled)
 			then
 				--// this will be an active addon
 				handler.orderList[ki.name] = order or 1235 --// back of the pack for unknown order
@@ -413,7 +400,22 @@ handler.SafeCallAddon = SafeCallAddon
 
 require "addonRevisions.lua"
 
+function handler:NewAddon(rev)
+	return (rev > 1) and AddonRevs.NewAddonRev2() or AddonRevs.NewAddonRev1()
+end
+
+
+function handler:ValidateAddon(addon)
+	if (addon.GetTooltip and not addon.IsAbove) then
+		return ("%s has GetTooltip() but not IsAbove()"):format(handler.AddonName)
+	end
+	return nil
+end
+
+
 function handler:LoadAddonInfo(filepath, _VFSMODE)
+	_VFSMODE = _VFSMODE or VFSMODE
+
 	--// update so addons can see if something got changed
 	handler.knownChanged = handler.knownChanged + 1
 
@@ -421,6 +423,12 @@ function handler:LoadAddonInfo(filepath, _VFSMODE)
 	local name = handler:FindNameByPath(filepath)
 	if (name) then
 		handler.knownInfos[name] = nil --FIXME addon._info and handler.knownInfos[name] point should point to the same table?
+	end
+
+	local ki = handler.knownInfos[name]
+	if ki and ki.active then
+		--// loaded and running, don't override existing knownInfos!
+		return
 	end
 
 	local err, ki = AddonRevs.LoadAddonInfoRev2(filepath, _VFSMODE)
@@ -445,7 +453,7 @@ function handler:LoadAddonInfo(filepath, _VFSMODE)
 
 	--// check if it's loaded from a zip (game or map)
 	ki.fromZip = true
-	if (_VFSMODE == VFS.ZIP_FIRST) then
+	if (_VFSMODE == VFS.ZIP)or(_VFSMODE == VFS.ZIP_FIRST) then
 		ki.fromZip = VFS.FileExists(ki.filepath,VFS.ZIP_ONLY)
 	else
 		ki.fromZip = not VFS.FileExists(ki.filepath,VFS.RAW_ONLY)
@@ -514,7 +522,7 @@ local function InsertAddonCallIn(ciName, addon)
 		local swf = SafeWrapFunc(addon, f, ciName)
 		return handler.callInLists[ciName]:Insert(addon, swf)
 	elseif (handler.verbose) then
-		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::InsertAddonCallIn: Unknown CallIn \"" .. ciName.. "\"")
+		Spring.Log(LUA_NAME, "warning", "::InsertAddonCallIn: Unknown CallIn \"" .. ciName.. "\"")
 	end
 	return false
 end
@@ -525,7 +533,7 @@ local function RemoveAddonCallIn(ciName, addon)
 		addon[ciName .. "__"] = nil
 		return handler.callInLists[ciName]:Remove(addon)
 	elseif (handler.verbose) then
-		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::RemoveAddonCallIn: Unknown CallIn \"" .. ciName.. "\"")
+		Spring.Log(LUA_NAME, "warning", "::RemoveAddonCallIn: Unknown CallIn \"" .. ciName.. "\"")
 	end
 	return false
 end
@@ -550,11 +558,11 @@ function handler:Load(filepath, _VFSMODE)
 
 	if (ki.blocked) then
 		--// blocked
-		Spring.Log(LUA_NAME, "warning", ("%s: blocked %s \"%s\"."):format(LUA_NAME, handler.AddonName, ki.name))
+		Spring.Log(LUA_NAME, "warning", ("blocked %s \"%s\"."):format(handler.AddonName, ki.name))
 		return
 	elseif (ki.active) then
 		--// Already loaded?
-		Spring.Log(LUA_NAME, "warning", ("%s: %s \"%s\" already loaded."):format(LUA_NAME, handler.AddonName, ki.name))
+		Spring.Log(LUA_NAME, "warning", ("%s \"%s\" already loaded."):format(handler.AddonName, ki.name))
 		return
 	end
 
@@ -562,7 +570,7 @@ function handler:Load(filepath, _VFSMODE)
 	for i=1,#ki.depend do
 		local dep = ki.depend[i]
 		if not (handler.knownInfos[dep] or {}).active then
-			Spring.Log(LUA_NAME, "warning", ("%s: Missing/Unloaded dependency \"%s\" for \"%s\"."):format(LUA_NAME, dep, ki.name))
+			Spring.Log(LUA_NAME, "warning", ("Missing/Unloaded dependency \"%s\" for \"%s\"."):format(dep, ki.name))
 			return
 		end
 	end
@@ -588,7 +596,7 @@ function handler:Load(filepath, _VFSMODE)
 
 	if (handler.verbose or handler.initialized) then
 		local loadingstr = ((ki.api and "Loading API %s: ") or "Loading %s: "):format(handler.addonName)
-		spEcho(("%-20s %-21s  %s"):format(loadingstr, name, handler:GetFancyString(name,basename)))
+		Spring.Log(LUA_NAME, "info", ("%-20s %-21s  %s"):format(loadingstr, name, handler:GetFancyString(name,basename)))
 	end
 
 	--// Add to handler
@@ -597,7 +605,7 @@ function handler:Load(filepath, _VFSMODE)
 
 	--// Unsafe addon (don't use pcall for callins)
 	if (SAFEWRAP == 1)and(addon._info.unsafe) then
-		Spring.Log(LUA_NAME, "warning", ('%s: loaded unsafe %s: %s'):format(LUA_NAME, handler.addonName, name))
+		Spring.Log(LUA_NAME, "warning", ('loaded unsafe %s: %s'):format(handler.addonName, name))
 	end
 
 	--// Link the CallIns
@@ -656,7 +664,7 @@ function handler:Remove(addon, _reason)
 
 	--// Remove any links in the handler
 	handler:RemoveAddonGlobals(addon)
-	actionHandler.RemoveWidgetActions(addon)
+	actionHandler.RemoveAddonActions(addon)
 	handler.addons:Remove(addon)
 	RemoveAddonCallIns(addon)
 
@@ -669,7 +677,7 @@ function handler:Remove(addon, _reason)
 	end
 	for i=1,#rem do
 		local ki2 = rem[i]._info
-		spEcho(("Removed %s:  %-21s  %s (dependent of \"%s\")"):format(handler.addonName, ki2.name, handler:GetFancyString(ki2.name,ki2.basename),name))
+		Spring.Log(LUA_NAME, "info", ("Removed %s:  %-21s  %s (dependent of \"%s\")"):format(handler.addonName, ki2.name, handler:GetFancyString(ki2.name,ki2.basename),name))
 		handler:Remove(rem[i], "dependency")
 	end
 
@@ -690,7 +698,7 @@ function handler:LoadOrderList()
 	if VFS.FileExists(ORDER_FILENAME) then
 		local success, rvalue = pcall(VFS.Include, ORDER_FILENAME, {math = {huge = math.huge}})
 		if (not success) then
-			Spring.Log(LUA_NAME, "warning", LUA_NAME .. ': Failed to load: ' .. ORDER_FILENAME .. '  (' .. rvalue .. ')')
+			Spring.Log(LUA_NAME, "warning", 'Failed to load: ' .. ORDER_FILENAME .. '  (' .. rvalue .. ')')
 		elseif (type(rvalue) == "table") then
 			handler.orderList = rvalue
 		end
@@ -717,9 +725,9 @@ function handler:LoadKnownData()
 	if VFS.FileExists(KNOWN_FILENAME) then
 		local success, rvalue = pcall(VFS.Include, KNOWN_FILENAME, {math = {huge = math.huge}})
 		if (not success) then
-			Spring.Log(LUA_NAME, "warning", LUA_NAME .. ': Failed to load: ' .. KNOWN_FILENAME .. '  (' .. rvalue .. ')')
+			Spring.Log(LUA_NAME, "warning", 'Failed to load: ' .. KNOWN_FILENAME .. '  (' .. rvalue .. ')')
 		elseif (type(rvalue) ~= "table") then
-			Spring.Log(LUA_NAME, "warning", LUA_NAME .. ': Failed to load: ' .. KNOWN_FILENAME .. '  (broken data)')
+			Spring.Log(LUA_NAME, "warning", 'Failed to load: ' .. KNOWN_FILENAME .. '  (broken data)')
 		else
 			handler.knownInfos = rvalue
 		end
@@ -799,7 +807,7 @@ end
 function handler:Enable(name)
 	local ki = handler.knownInfos[name]
 	if (not ki) then
-		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::Enable: Couldn\'t find \"" .. name .. "\".")
+		Spring.Log(LUA_NAME, "warning", "::Enable: Couldn\'t find \"" .. name .. "\".")
 		return false
 	end
 	if (ki.active) then
@@ -819,7 +827,7 @@ end
 function handler:Disable(name)
 	local ki = handler.knownInfos[name]
 	if (not ki) then
-		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
+		Spring.Log(LUA_NAME, "warning", "::Disable: Didn\'t found \"" .. name .. "\".")
 		return false
 	end
 	if (not ki.active)and((order or 0) > 0) then
@@ -835,7 +843,7 @@ function handler:Disable(name)
 		handler:SaveOrderList()
 		return true
 	else
-		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::Disable: Didn\'t found \"" .. name .. "\".")
+		Spring.Log(LUA_NAME, "warning", "::Disable: Didn\'t found \"" .. name .. "\".")
 	end
 end
 
@@ -843,7 +851,7 @@ end
 function handler:Toggle(name)
 	local ki = handler.knownInfos[name]
 	if (not ki) then
-		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::Toggle: Couldn\'t find \"" .. name .. "\".")
+		Spring.Log(LUA_NAME, "warning", "::Toggle: Couldn\'t find \"" .. name .. "\".")
 		return
 	end
 
@@ -860,7 +868,7 @@ function handler:Toggle(name)
 		end
 	end)
 	if not status then
-		Spring.Log(LUA_NAME, "warning", LUA_NAME .. "::Toggle Error: \"" .. msg .. "\".")
+		Spring.Log(LUA_NAME, "warning", "::Toggle Error: \"" .. msg .. "\".")
 		return
 	end
 	return status

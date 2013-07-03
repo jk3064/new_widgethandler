@@ -120,15 +120,7 @@ end
 --------------------------------------------------------------------------------
 -- Addon Parsing
 
-local function ValidateAddon(addon)
-	if (addon.GetTooltip and not addon.IsAbove) then
-		return ("%s has GetTooltip() but not IsAbove()"):format(handler.AddonName)
-	end
-	return nil
-end
-
-
-local function NewAddonRev2()
+function AddonRevs.NewAddonRev2()
 	local addonEnv = {}
 	local addon = addonEnv
 	addonEnv.widget = addon
@@ -151,8 +143,8 @@ local function NewAddonRev2()
 			end,
 			UpdateCallIn = function(name) handler:UpdateAddonCallIn(name, addon) end,
 			RemoveCallIn = function(name) handler:RemoveAddonCallIn(name, addon) end,
-			AddAction    = function(cmd, func, data, types) return actionHandler.AddWidgetAction(addon, cmd, func, data, types) end,
-			RemoveAction = function(cmd, types)             return actionHandler.RemoveWidgetAction(addon, cmd, types) end,
+			AddAction    = function(cmd, func, data, types) return actionHandler.AddAction(addon, cmd, func, data, types) end,
+			RemoveAction = function(cmd, types)             return actionHandler.RemoveAction(addon, cmd, types) end,
 --[[
 FIXME???
 			AddLayoutCommand = function(_, cmd)
@@ -176,7 +168,7 @@ FIXME???
 end
 
 
-local function NewAddonRev1()
+function AddonRevs.NewAddonRev1()
 	local addonEnv = {}
 	local addon = addonEnv --// easy self referencing
 	addonEnv.addon  = addon
@@ -209,8 +201,9 @@ local function NewAddonRev1()
 	h.UpdateCallIn = function(_, name) handler:UpdateAddonCallIn(name, addon) end
 	h.RemoveCallIn = function(_, name) handler:RemoveAddonCallIn(name, addon) end
 
-	h.AddAction    = function(_, cmd, func, data, types) return actionHandler.AddWidgetAction(addon, cmd, func, data, types) end
-	h.RemoveAction = function(_, cmd, types)             return actionHandler.RemoveWidgetAction(addon, cmd, types) end
+	h.AddAction    = function(_, cmd, func, data, types) return actionHandler.AddAction(addon, cmd, func, data, types) end
+	h.RemoveAction = function(_, cmd, types)             return actionHandler.RemoveAction(addon, cmd, types) end
+	h.actionHandler    = actionHandler.oldSyntax
 
 	h.AddLayoutCommand = function(_, cmd)
 		if (handler.inCommandsChanged) then
@@ -219,7 +212,6 @@ local function NewAddonRev1()
 			Spring.Echo("AddLayoutCommand() can only be used in CommandsChanged()")
 		end
 	end
-	h.ConfigLayoutHandler = handler.EG.ConfigLayoutHandler
 
 	h.RegisterGlobal   = function(_, name, value) return handler:RegisterGlobal(addon, name, value) end
 	h.DeregisterGlobal = function(_, name)        return handler:DeregisterGlobal(addon, name) end
@@ -234,7 +226,7 @@ function AddonRevs.ParseAddon(rev, filepath, _VFSMODE)
 	local basename = Basename(filepath)
 
 	--// load the code
-	local addonEnv = (rev > 1) and NewAddonRev2() or NewAddonRev1()
+	local addonEnv = handler:NewAddon(rev)
 	local success, err = pcall(VFS.Include, filepath, addonEnv, _VFSMODE)
 	if (not success) then
 		Spring.Log(LUA_NAME, "error", 'Failed to load: ' .. basename .. '  (' .. err .. ')')
@@ -247,7 +239,7 @@ function AddonRevs.ParseAddon(rev, filepath, _VFSMODE)
 	local addon = addonEnv.addon
 
 	--// Validate Callins
-	err = ValidateAddon(addon)
+	err = handler:ValidateAddon(addon)
 	if (err) then
 		Spring.Log(LUA_NAME, "error", 'Failed to load: ' .. basename .. '  (' .. err .. ')')
 		return nil

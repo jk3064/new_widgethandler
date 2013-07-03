@@ -19,12 +19,40 @@ end
 
 
 function addon.Initialize()
+	--// how to handle local widgets
+	local localWidgetsFirst = false or true
+	local localWidgets = false or true
+	do
+		handler:LoadConfigData()
+		if handler.configData["handler"] then
+			localWidgetsFirst = handler.configData["handler"].localWidgetsFirst
+			localWidgets      = handler.configData["handler"].localWidgets
+		end
+	end
 
+	--// VFS Mode
+	local VFSMODE = nil
+	VFSMODE = localWidgetsFirst and VFS.RAW_FIRST
+	VFSMODE = VFSMODE or localWidgets and VFS.ZIP_FIRST
+	VFSMODE = VFSMODE or VFS.ZIP
+
+	handler:SetVFSMode(VFSMODE)
 end
 
+
 function addon.BlockAddon(name, knownInfo)
-	--Spring.Echo("Block?", name, knownInfo.fromZip)
-	if not knownInfo.fromZip and knownInfo.name ~= "WidgetSelector" then
-		--return true --// block
+	if (knownInfo.name == "WidgetSelector") then
+		return
+	end
+
+	--if not knownInfo.fromZip and  then
+	--	--return true --// block
+	--end
+
+	if (not knownInfo.fromZip)and(knownInfo.enabled) then
+		local autoUserWidgets = (Spring.GetConfigInt('LuaAutoEnableUserWidgets', 0) ~= 0)
+		if (not autoUserWidgets) then
+			knownInfo.enabled = false
+		end
 	end
 end

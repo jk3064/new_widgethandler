@@ -42,10 +42,10 @@ function hHookFuncs.ConfigureLayout(command)
 		handler:Disable(string.sub(command, 15))
 		return true
 	elseif (command:find('callins') == 1) then
-		Spring.Echo(LUA_NAME .. ": known callins are:")
-		Spring.Echo("  (NOTE: This list contains a few (e.g. cause of LOS checking) unhandled CallIns, too.)")
+		Spring.Log(LUA_NAME, "info", "known callins are:")
+		Spring.Log(LUA_NAME, "info", "  (NOTE: This list contains a few (e.g. cause of LOS checking) unhandled CallIns, too.)")
 		local o = {}
-		for i,v in pairs(knownCallIns) do
+		for i,v in pairs(handler.knownCallIns) do
 			local t = {}
 			for j,w in pairs(v) do
 				t[#t+1] = j .. "=" .. tostring(w)
@@ -54,7 +54,7 @@ function hHookFuncs.ConfigureLayout(command)
 		end
 		table.sort(o)
 		for i=1,#o do
-			Spring.Echo(o[i])
+			Spring.Log(LUA_NAME, "info", o[i])
 		end
 		return true
 	end

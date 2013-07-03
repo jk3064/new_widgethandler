@@ -51,21 +51,23 @@ function widget:Initialize()
   end
 
   local orig_NewAddon = handler.NewAddon
+  assert(orig_NewAddon)
   function handler:NewAddon(...)
     local env = orig_NewAddon(self, ...)
-    local h   = env[handler.name]
+    local h   = env.handler
     h.InTweakMode = handler.InTweakMode
     return env
   end
 
-  local orig_ValidateWidget = handler.ValidateWidget
-  function handler:ValidateWidget(widget)
-    local err = orig_ValidateWidget(self, widget)
+  local orig_ValidateAddon = handler.ValidateAddon
+  assert(orig_ValidateAddon)
+  function handler:ValidateAddon(addon)
+    local err = orig_ValidateAddon(self, addon)
     if (err) then
       return err
     end
-    if (widget.TweakGetTooltip and not widget.TweakIsAbove) then
-      return "Widget has TweakGetTooltip() but not TweakIsAbove()"
+    if (addon.TweakGetTooltip and not addon.TweakIsAbove) then
+      return "Addon has TweakGetTooltip() but not TweakIsAbove()"
     end
   end
 
